@@ -1,4 +1,6 @@
 import express from 'express'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { pool, query } from './db.js'
 
 const app = express()
@@ -19,6 +21,16 @@ app.get('/api/health', async (_request, response) => {
     response.status(503).json({ status: 'error', database: 'unavailable' })
   }
 })
+
+if (process.env.NODE_ENV === 'production') {
+  const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
+  const staticDirectory = path.resolve(currentDirectory, '..', 'dist')
+
+  app.use(express.static(staticDirectory))
+  app.get('/{*path}', (_request, response) => {
+    response.sendFile(path.join(staticDirectory, 'index.html'))
+  })
+}
 
 const server = app.listen(port, () => {
   console.log(`PawOps API listening on http://localhost:${port}`)

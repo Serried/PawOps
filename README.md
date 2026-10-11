@@ -31,6 +31,29 @@ Database credentials belong in `.env`, which is excluded from Git. Update both `
 
 Set `DATABASE_URL` in the deployment environment to the production PostgreSQL connection string. Run `npm run db:migrate` as a release step, and never commit production credentials.
 
+The included `Dockerfile` builds the React frontend and runs it with the API on port `3001`.
+
+## Jenkins CI/CD
+
+The repository includes a declarative `Jenkinsfile`. It installs locked dependencies, runs lint and the production build in parallel, starts PostgreSQL, applies migrations, exercises the database health endpoint, and builds a production container image.
+
+Configure a Linux Jenkins agent with:
+
+- the label `node-docker`
+- Node.js 22 and npm
+- Docker Engine with the Compose plugin
+- permission for the Jenkins user to access Docker
+
+Create a Pipeline or Multibranch Pipeline pointed at this repository. Pull requests and branches run CI without publishing.
+
+To enable container delivery from `main`:
+
+1. Add a Jenkins username/password credential with ID `container-registry`.
+2. Run the pipeline with `PUBLISH_IMAGE` enabled.
+3. Set `IMAGE_NAME` to the fully qualified registry path, such as `ghcr.io/example/pawops`.
+
+Publishing creates both `${BUILD_NUMBER}` and `latest` tags. Deployment to a server, Kubernetes cluster, or cloud platform can be added once the target environment is chosen.
+
 ## Frontend notes
 
 The frontend uses the standard Vite React setup.
