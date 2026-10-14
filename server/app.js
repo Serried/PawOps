@@ -9,6 +9,7 @@ import { createInviteRouter } from './invites.js'
 import { apiNotFound, errorHandler, memberOneErrorHandler } from './middleware/error-handler.js'
 import { careEventsRouter } from './routes/care-events.js'
 import { petsRouter } from './routes/pets.js'
+import { routinesRouter } from './routes/routines.js'
 
 export function createApp() {
   const app = express()
@@ -40,6 +41,7 @@ export function createApp() {
 
   app.use('/api/pets', petsRouter)
   app.use('/api/care-events', careEventsRouter)
+  app.use('/api/routines', routinesRouter)
 
   app.use('/api', apiNotFound)
 
