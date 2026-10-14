@@ -1,0 +1,3 @@
+
+ALTER TABLE care_routines
+  ADD COLUMN IF NOT EXISTS effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW();

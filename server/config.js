@@ -28,6 +28,8 @@ export const OVERDUE_GRACE_MINUTES = positiveInt(
   15,
 )
 
+export const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Bangkok'
+
 export const PET_SEXES = ['male', 'female', 'unknown']
 
 export const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || 'uploads')
