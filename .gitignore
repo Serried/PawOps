@@ -17,7 +17,6 @@ dist-ssr
 .env.*
 !.env.example
 
-
 postgres-data/
 
 # Editor directories and files
@@ -30,3 +29,6 @@ postgres-data/
 *.njsproj
 *.sln
 *.sw?
+
+# Pet photos
+uploads/

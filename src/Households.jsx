@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import { Brand, Avatar, Feedback } from './ui.jsx'
 import HouseholdMembers from './HouseholdMembers.jsx'
+import PawOpsApp from './PawOpsApp.jsx'
 
 export default function Households({ user, onLogout }) {
   const [households, setHouseholds] = useState([])
@@ -47,19 +48,18 @@ export default function Households({ user, onLogout }) {
     } catch (err) { setError(err.message) }
     finally { setBusy(false) }
   }
-  if (household) return <div className="workspace">
-    <aside className="sidebar">
-      <Brand />
-      <label className="household-switch">Household<select value={selected} onChange={(e) => { setSelected(e.target.value); setError(''); setNotice('') }}>{households.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <nav aria-label="Main navigation"><button className="nav-link" onClick={() => { setSelected(null); setNotice('') }}>⌂ Households</button><button className="nav-link active" aria-current="page">♧ Members</button></nav>
-      <div className="sidebar-bottom"><div className="user-identity"><Avatar name={userName} /><div><strong>{userName}</strong><small>{household.role === 'owner' ? 'Owner' : 'Member'}</small></div></div><button className="text-button" disabled={busy} onClick={logout}>Log out</button></div>
-    </aside>
-    <main className="workspace-main">
+  // Household chosen: Pet & Care app shell (Member 2); Members page at /members
+  if (household) return <PawOpsApp
+    user={user}
+    household={household}
+    onLogout={logout}
+    onSwitchHousehold={() => { setSelected(null); setError(''); setNotice('') }}
+    membersPage={<div className="m1-page">
       <header className="page-header"><div><h1>Household Members</h1><p className="muted">Who takes care of your pets · {household.name}</p></div><button className="outline danger" disabled={busy} onClick={leave}>Leave household</button></header>
       <Feedback error={error} notice={notice} />
       <HouseholdMembers key={household.id} household={household} />
-    </main>
-  </div>
+    </div>}
+  />
   return <div className="onboarding">
     <header className="topbar"><Brand /><div className="topbar-user"><Avatar name={userName} /><span>{userName}</span><button className="outline" onClick={logout} disabled={busy}>Log out</button></div></header>
     <main className="onboarding-main">
