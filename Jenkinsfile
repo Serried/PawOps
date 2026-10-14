@@ -55,6 +55,7 @@ pipeline {
       steps {
         sh 'docker compose up -d --wait db'
         sh 'npm run db:migrate'
+        sh 'TEST_DATABASE_URL="$DATABASE_URL" npm test'
         sh '''
           NODE_ENV=production npm start > api.log 2>&1 &
           echo $! > api.pid

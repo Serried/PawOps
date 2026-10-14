@@ -1,0 +1,6 @@
+ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT '';
+CREATE TABLE household_invites (
+  household_id BIGINT PRIMARY KEY REFERENCES households(id) ON DELETE CASCADE,
+  code TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL
+);
