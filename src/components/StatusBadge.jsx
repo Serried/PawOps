@@ -1,7 +1,7 @@
 import { Icon } from './Icon.jsx'
 
 const BADGES = {
-  done: { icon: 'check', label: 'Done' },
+  done: { icon: 'check', label: 'Completed' },
   upcoming: { icon: 'clock', label: 'Upcoming' },
   overdue: { icon: 'alert', label: 'Overdue' },
 }
