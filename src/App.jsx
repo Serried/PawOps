@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
+import { SESSION_EXPIRED_EVENT } from './api/client.js'
 import { Brand, Paw, Feedback } from './ui.jsx'
 import Households from './Households.jsx'
 import './App.css'
@@ -15,15 +16,32 @@ export default function App() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [sessionFailure, setSessionFailure] = useState(false)
+  const [sessionVersion, setSessionVersion] = useState(0)
   useEffect(() => {
     let active = true
     api('auth/me').then((data) => { if (active) setUser(data.user) })
-      .catch((err) => { if (active && err.status !== 401) setError('Unable to connect. Please try again.') })
+      .catch((err) => {
+        if (active && err.status !== 401) {
+          setError(err.message)
+          setSessionFailure(true)
+        }
+      })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
+  }, [sessionVersion])
+  useEffect(() => {
+    const expired = () => {
+      setUser(null)
+      setPassword('')
+      setError('')
+      setNotice('Your session has expired. Please sign in again.')
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, expired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, expired)
   }, [])
   async function submit(event) {
-    event.preventDefault(); setBusy(true); setError(''); setNotice('')
+    event.preventDefault(); setBusy(true); setError(''); setNotice(''); setSessionFailure(false)
     try {
       const data = await api(`auth/${mode}`, { email, password, displayName })
       setPassword('')
@@ -64,6 +82,7 @@ export default function App() {
           <button className="primary" disabled={busy}>{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create Account'}</button>
         </form>
         <Feedback error={error} notice={notice} />
+        {sessionFailure && <button type="button" className="outline full-width" onClick={() => { setError(''); setSessionFailure(false); setLoading(true); setSessionVersion((value) => value + 1) }}>Try connecting again</button>}
       </div>
     </section>
   </main>

@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { PageLoading, RequestError } from './AsyncState.jsx'
 import { useSession } from '../context/session.js'
 import { Icon } from './Icon.jsx'
 import { PersonAvatar } from './PetAvatar.jsx'
@@ -13,17 +14,15 @@ const NAV = [
 ]
 
 function SessionGate() {
-  const { loading, error } = useSession()
+  const { loading, error, retry } = useSession()
   if (error) {
     return (
       <div className="pc-page">
-        <div className="notice notice--error" role="alert">
-          {error.message}
-        </div>
+        <RequestError error={error} resourceName="household members" onRetry={retry} backTo="/dashboard" backLabel="Back to dashboard" />
       </div>
     )
   }
-  if (loading) return null
+  if (loading) return <div className="pc-page"><PageLoading label="Loading household…" rows={2} /></div>
   return <Outlet />
 }
 

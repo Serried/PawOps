@@ -69,7 +69,7 @@ describe('PBI-13 dashboard', () => {
       React.createElement(DashboardErrorState, { error: { status: 500 } }),
     )
     expect(html).toContain('Unable to load your dashboard.')
-    expect(html).toContain('Retry')
+    expect(html).toContain('Try again')
   })
 
   it('represents completed, upcoming, and overdue routines distinctly', () => {

@@ -6,6 +6,7 @@ import { Field } from '../../components/Field.jsx'
 import { PersonAvatar, PetAvatar } from '../../components/PetAvatar.jsx'
 import { useSession } from '../../context/session.js'
 import { todayISODate } from '../../lib/format.js'
+import { validatePetValues } from '../../lib/validation.js'
 
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024
 const PHOTO_TYPES = ['image/jpeg', 'image/png'] // design: "JPG or PNG"
@@ -68,9 +69,11 @@ export function PetForm({ pet, initialError = null }) {
 
   const submit = async (event) => {
     event.preventDefault()
-    setSaving(true)
     setFormError(null)
-    setFieldErrors({})
+    const clientErrors = validatePetValues(values)
+    setFieldErrors(clientErrors)
+    if (Object.keys(clientErrors).length > 0) return
+    setSaving(true)
 
     const payload = {
       name: values.name,
@@ -112,14 +115,16 @@ export function PetForm({ pet, initialError = null }) {
       }
     }
 
-    navigate(`/pets/${saved.id}`)
+    navigate(`/pets/${saved.id}`, {
+      state: { notice: editing ? `${saved.name}'s profile was updated.` : `${saved.name} was added successfully.` },
+    })
   }
 
   const remove = async () => {
     setRemoving(true)
     try {
       await removePet(pet.id)
-      navigate('/pets')
+      navigate('/pets', { state: { notice: `${pet.name} was removed from the household.` } })
     } catch (error) {
       setFormError(apiError(error).message)
       setRemoving(false)
@@ -260,7 +265,7 @@ export function PetForm({ pet, initialError = null }) {
                 Removes {pet.name} and its routines from this household. This cannot be undone.
               </p>
               <button type="button" className="btn btn--danger-outline" onClick={remove} disabled={removing}>
-                Remove {pet.name}
+                {removing ? 'Removing…' : `Remove ${pet.name}`}
               </button>
             </div>
           )}

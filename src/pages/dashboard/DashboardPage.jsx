@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getDashboard } from '../../api/dashboard.js'
 import { completeCareEvent } from '../../api/careEvents.js'
@@ -9,6 +9,7 @@ import { DashboardSkeleton } from '../../components/dashboard/DashboardSkeleton.
 import { RecentActivity } from '../../components/dashboard/RecentActivity.jsx'
 import { TodayCare } from '../../components/dashboard/TodayCare.jsx'
 import { Icon } from '../../components/Icon.jsx'
+import { RequestError, StatusNotice } from '../../components/AsyncState.jsx'
 import { useSession } from '../../context/session.js'
 import { useApi } from '../../hooks/useApi.js'
 import { useDuplicateGuard } from '../../hooks/useDuplicateGuard.jsx'
@@ -62,34 +63,26 @@ export function DashboardView({ data, user, household, busyId = null, onComplete
 }
 
 export function DashboardErrorState({ error, onRetry = () => {} }) {
-  const forbidden = error.status === 403
-  const unauthorized = error.status === 401
-  return (
-    <div className="flex max-w-[640px] flex-col items-start gap-2.5 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow)]" role="alert">
-      <Icon name="alert" size={28} className="text-[var(--danger)]" />
-      <h1 className="text-2xl">{forbidden ? "You don't have permission to access this household." : unauthorized ? 'Your session has expired.' : 'Unable to load your dashboard.'}</h1>
-      <p className="m-0 text-[var(--muted)]">{forbidden ? 'Switch households or ask a household owner for access.' : unauthorized ? 'Please sign in again.' : 'Please check your connection and try again.'}</p>
-      {!unauthorized && <button type="button" className="inline-flex items-center justify-center rounded-[var(--radius-sm)] bg-[var(--primary)] px-5 py-[11px] font-bold text-white hover:bg-[var(--primary-strong)]" onClick={onRetry}>Retry</button>}
-    </div>
-  )
+  return <RequestError error={error} resourceName="your dashboard" onRetry={onRetry} forbiddenTitle="You don't have permission to access this household." />
 }
 
 export function DashboardPage() {
-  const { user, household, onLogout } = useSession()
+  const { user, household } = useSession()
   const dashboard = useApi(() => getDashboard(household.id), `dashboard:${household.id}`)
   const { run, dialog } = useDuplicateGuard()
   const [busyId, setBusyId] = useState(null)
   const [actionError, setActionError] = useState(null)
-
-  useEffect(() => {
-    if (dashboard.error?.status === 401) onLogout()
-  }, [dashboard.error, onLogout])
+  const [actionNotice, setActionNotice] = useState(null)
 
   const markDone = async (event) => {
     setBusyId(event.id)
     setActionError(null)
+    setActionNotice(null)
     try {
-      await run((override) => completeCareEvent(event.id, { override }), dashboard.reload)
+      await run((override) => completeCareEvent(event.id, { override }), () => {
+        dashboard.reload()
+        setActionNotice(`${event.title} was marked as completed.`)
+      })
     } catch (error) {
       setActionError(error.message)
     } finally {
@@ -106,7 +99,8 @@ export function DashboardPage() {
   return (
     <>
       {dialog}
-      {actionError && <div className="notice notice--error" role="alert">{actionError}</div>}
+      {actionNotice && <StatusNotice>{actionNotice}</StatusNotice>}
+      {actionError && <StatusNotice type="error">{actionError}</StatusNotice>}
       <DashboardView data={dashboard.data} user={user} household={household} busyId={busyId} onComplete={markDone} />
     </>
   )

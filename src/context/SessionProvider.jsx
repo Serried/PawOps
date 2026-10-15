@@ -12,6 +12,7 @@ export function SessionProvider({ user, household, onLogout, onSwitchHousehold, 
     members: members.data ?? [],
     loading: members.loading,
     error: members.error,
+    retry: members.reload,
     onLogout,
     onSwitchHousehold,
   }

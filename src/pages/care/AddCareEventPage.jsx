@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { CARE_TYPES, careTypeLabel, createCareEvent } from '../../api/careEvents.js'
 import { apiError } from '../../api/client.js'
 import { listPets } from '../../api/pets.js'
+import { EmptyState, PageLoading, RequestError } from '../../components/AsyncState.jsx'
 import { Field } from '../../components/Field.jsx'
 import { PetAvatar } from '../../components/PetAvatar.jsx'
 import { StatusBadge } from '../../components/StatusBadge.jsx'
@@ -14,20 +15,12 @@ export function AddCareEventPage() {
   const { household } = useSession()
   const pets = useApi(() => listPets(household.id), `pets:${household.id}`)
 
+  if (pets.loading) return <PageLoading label="Loading pets…" rows={2} />
   if (pets.error) {
-    return (
-      <div className="notice notice--error" role="alert">
-        {pets.error.message}
-      </div>
-    )
+    return <RequestError error={pets.error} resourceName="pets" onRetry={pets.reload} backTo="/dashboard" backLabel="Back to dashboard" />
   }
-  if (!pets.data) return null
   if (pets.data.length === 0) {
-    return (
-      <div className="notice notice--error" role="alert">
-        Add a pet first.
-      </div>
-    )
+    return <EmptyState title="No pets yet" message="Add your first pet before recording care." actionLabel="Add pet" actionTo="/pets/new" />
   }
   return <CareEventForm pets={pets.data} />
 }
@@ -80,7 +73,7 @@ function CareEventForm({ pets }) {
         assignedToId: values.assignedToId ? Number(values.assignedToId) : null,
         note: values.note,
       })
-      navigate(`/pets/${values.petId}`)
+      navigate(`/pets/${values.petId}`, { state: { notice: `${title} was scheduled successfully.` } })
     } catch (error) {
       const failure = apiError(error)
       setFieldErrors(failure.fields)
