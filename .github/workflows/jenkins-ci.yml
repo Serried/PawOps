@@ -1,0 +1,179 @@
+name: Jenkins Bridge
+
+on:
+  push:
+    branches:
+      - "feature/**"
+      - "fix/**"
+      - "chore/**"
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+concurrency:
+  group: jenkins-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Jenkins CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      JENKINS_URL: ${{ secrets.JENKINS_URL }}
+      JENKINS_USER: ${{ secrets.JENKINS_USER }}
+      JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+
+      JENKINS_JOB: pawops-ci
+
+      GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      GIT_REF: ${{ github.head_ref || github.ref_name }}
+      PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+
+    steps:
+      - name: Validate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "$JENKINS_URL"
+          test -n "$JENKINS_USER"
+          test -n "$JENKINS_API_TOKEN"
+          test -n "$GIT_SHA"
+
+          echo "PR: #$PR_NUMBER"
+          echo "Ref: $GIT_REF"
+          echo "SHA: $GIT_SHA"
+
+      - name: Trigger Jenkins
+        id: trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          JENKINS_URL="${JENKINS_URL%/}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --dump-header response-headers.txt \
+            --output /dev/null \
+            --user "$JENKINS_USER:$JENKINS_API_TOKEN" \
+            --request POST \
+            "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" \
+            --data-urlencode "GIT_SHA=$GIT_SHA" \
+            --data-urlencode "GIT_REF=$GIT_REF" \
+            --data-urlencode "PR_NUMBER=$PR_NUMBER"
+
+          QUEUE_URL="$(
+            awk '
+              BEGIN { IGNORECASE=1 }
+              /^Location:/ {
+                gsub("\r", "", $2)
+                print $2
+              }
+            ' response-headers.txt
+          )"
+
+          if [ -z "$QUEUE_URL" ]; then
+            echo "::error::Jenkins did not return a queue URL."
+            cat response-headers.txt
+            exit 1
+          fi
+
+          echo "Jenkins queue: $QUEUE_URL"
+          echo "queue_url=$QUEUE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Jenkins executor
+        id: queue
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          QUEUE_URL="${{ steps.trigger.outputs.queue_url }}"
+          BUILD_URL=""
+
+          for _ in $(seq 1 120); do
+            RESPONSE="$(
+              curl \
+                --fail \
+                --silent \
+                --show-error \
+                --user "$JENKINS_USER:$JENKINS_API_TOKEN" \
+                "${QUEUE_URL}api/json"
+            )"
+
+            CANCELLED="$(echo "$RESPONSE" | jq -r '.cancelled // false')"
+
+            if [ "$CANCELLED" = "true" ]; then
+              echo "::error::Jenkins queue item was cancelled."
+              exit 1
+            fi
+
+            BUILD_URL="$(
+              echo "$RESPONSE" |
+              jq -r '.executable.url // empty'
+            )"
+
+            if [ -n "$BUILD_URL" ]; then
+              break
+            fi
+
+            echo "Waiting for Jenkins executor..."
+            sleep 2
+          done
+
+          if [ -z "$BUILD_URL" ]; then
+            echo "::error::Timed out waiting for Jenkins to start the build."
+            exit 1
+          fi
+
+          echo "Jenkins build: $BUILD_URL"
+          echo "build_url=$BUILD_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Jenkins result
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUILD_URL="${{ steps.queue.outputs.build_url }}"
+
+          for _ in $(seq 1 240); do
+            RESPONSE="$(
+              curl \
+                --fail \
+                --silent \
+                --show-error \
+                --user "$JENKINS_USER:$JENKINS_API_TOKEN" \
+                "${BUILD_URL}api/json"
+            )"
+
+            BUILDING="$(echo "$RESPONSE" | jq -r '.building')"
+            RESULT="$(echo "$RESPONSE" | jq -r '.result // empty')"
+
+            if [ "$BUILDING" = "false" ]; then
+              echo "Jenkins result: $RESULT"
+              echo "Jenkins build: $BUILD_URL"
+
+              if [ "$RESULT" = "SUCCESS" ]; then
+                echo "✅ Jenkins CI passed."
+                exit 0
+              fi
+
+              echo "::error::Jenkins CI finished with result: $RESULT"
+              exit 1
+            fi
+
+            echo "Jenkins is still running..."
+            sleep 5
+          done
+
+          echo "::error::Timed out waiting for Jenkins result."
+          exit 1

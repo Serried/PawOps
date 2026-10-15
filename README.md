@@ -33,26 +33,13 @@ Set `DATABASE_URL` in the deployment environment to the production PostgreSQL co
 
 The included `Dockerfile` builds the React frontend and runs it with the API on port `3001`.
 
-## Jenkins CI/CD
+## Jenkins CI
 
-The repository includes a declarative `Jenkinsfile`. It installs locked dependencies, runs lint and the production build in parallel, starts PostgreSQL, applies migrations, exercises the database health endpoint, and builds a production container image.
+The repository includes a declarative, CI-only `Jenkinsfile` for a Windows Jenkins agent labelled `node-docker`. Every blocking stage must pass: exact-SHA checkout, environment validation, locked dependency installation, lint, PostgreSQL-backed automated tests, the Vite production build, and a local Docker image build.
 
-Configure a Linux Jenkins agent with:
+Because the current Jenkins controller is not directly reachable from GitHub, a thin GitHub Actions bridge triggers the parameterized `pawops-ci` job and waits for its real result. Jenkins remains the CI engine; GitHub only exposes the required `Jenkins CI` check for pull-request gating. See [docs/ci.md](docs/ci.md) for setup and cross-platform local verification.
 
-- the label `node-docker`
-- Node.js 22 and npm
-- Docker Engine with the Compose plugin
-- permission for the Jenkins user to access Docker
-
-Create a Pipeline or Multibranch Pipeline pointed at this repository. Pull requests and branches run CI without publishing.
-
-To enable container delivery from `main`:
-
-1. Add a Jenkins username/password credential with ID `container-registry`.
-2. Run the pipeline with `PUBLISH_IMAGE` enabled.
-3. Set `IMAGE_NAME` to the fully qualified registry path, such as `ghcr.io/example/pawops`.
-
-Publishing creates both `${BUILD_NUMBER}` and `latest` tags. Deployment to a server, Kubernetes cluster, or cloud platform can be added once the target environment is chosen.
+Image publishing and deployment are intentionally deferred to PBI-17.
 
 ## Frontend notes
 
