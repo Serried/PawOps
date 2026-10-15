@@ -1,20 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiError } from '../api/client.js'
-import { CARE_TYPES, listCareEvents } from '../api/careEvents.js'
-import { listPets } from '../api/pets.js'
+import { apiError } from '../../api/client.js'
+import { CARE_TYPES } from '../../api/careEvents.js'
+import { listPets } from '../../api/pets.js'
 import {
   createRoutine,
   deleteRoutine,
   listRoutines,
   setRoutineActive,
   updateRoutine,
-} from '../api/routines.js'
-import { Icon } from '../components/Icon.jsx'
-import { PetAvatar } from '../components/PetAvatar.jsx'
-import { useSession } from '../context/session.js'
-import { useApi } from '../hooks/useApi.js'
-import { isToday, todayISODate } from '../lib/format.js'
+} from '../../api/routines.js'
+import { Icon } from '../../components/Icon.jsx'
+import { PetAvatar } from '../../components/PetAvatar.jsx'
+import { useSession } from '../../context/session.js'
+import { useApi } from '../../hooks/useApi.js'
+import { todayISODate } from '../../lib/format.js'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -34,8 +34,7 @@ const TYPE_COLORS = {
   vet_visit: 'blue',
   grooming: 'rose',
 }
-// Only these care types raise the duplicate warning (server BR-03)
-const DUPLICATE_CHECKED = ['feeding', 'medication']
+const ROUTINE_TYPES = [...CARE_TYPES.slice(0, 1), { value: 'water', label: 'Water' }, ...CARE_TYPES.slice(1)]
 
 function emptyForm(petId = '') {
   return {
@@ -53,7 +52,6 @@ function repeatLabel(daysOfWeek) {
   return daysOfWeek.length === 7 ? 'Every day' : daysOfWeek.map((day) => DAYS[day]).join(', ')
 }
 
-// What the badge on a routine row says, from today's task for that routine
 function routineBadge(routine, todayStatus) {
   if (!routine.active) return { label: 'Paused', className: 'status-badge--muted' }
   if (todayStatus === 'overdue') return { label: 'Overdue', className: 'status-badge--overdue' }
@@ -65,11 +63,6 @@ export function RoutinesPage() {
   const { household, members } = useSession()
   const pets = useApi(() => listPets(household.id), `routine-pets:${household.id}`)
   const routines = useApi(() => listRoutines(household.id), `routines:${household.id}`)
-  // Listing care events also creates today's task for every active routine
-  const events = useApi(
-    () => listCareEvents({ householdId: household.id, limit: 200 }),
-    `routine-events:${household.id}`,
-  )
 
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -88,13 +81,11 @@ export function RoutinesPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [modal])
 
-  const todayStatus = useMemo(() => {
-    const byRoutine = new Map()
-    for (const event of events.data ?? []) {
-      if (event.routineId && isToday(event.scheduledAt)) byRoutine.set(event.routineId, event.status)
-    }
-    return byRoutine
-  }, [events.data])
+  const reload = routines.reload
+  useEffect(() => {
+    const timer = setInterval(reload, 30_000)
+    return () => clearInterval(timer)
+  }, [reload])
 
   const grouped = (pets.data ?? [])
     .map((pet) => ({ pet, routines: (routines.data ?? []).filter((item) => item.petId === pet.id) }))
@@ -102,7 +93,6 @@ export function RoutinesPage() {
 
   function refresh() {
     routines.reload()
-    events.reload()
   }
 
   function change(key, value) {
@@ -192,6 +182,19 @@ export function RoutinesPage() {
 
   const loadError = routines.error ?? pets.error
   const loading = !routines.data || !pets.data
+  const timeZone = routines.data?.[0]?.timeZone ?? 'Asia/Bangkok'
+  const localParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date())
+  const part = (type) => localParts.find((item) => item.type === type)?.value
+  const localDate = `${part('year')}-${part('month')}-${part('day')}`
+  const localTime = `${part('hour')}:${part('minute')}`
+  const original = routines.data?.find((routine) => routine.id === editingId)
+  const scheduleChanged = !original || original.time !== form.time ||
+    original.startDate !== form.startDate ||
+    [...original.daysOfWeek].sort().join() !== [...form.daysOfWeek].sort().join()
+  const pastTime = scheduleChanged && form.startDate <= localDate && form.time <= localTime
 
   return (
     <section className="routine-screen">
@@ -199,7 +202,7 @@ export function RoutinesPage() {
         <div>
           <h1>Routines</h1>
           <p className="page-subtitle">
-            Recurring care on a schedule. Missing one raises an alert 15 minutes after its time.
+            Recurring care on a schedule. Missed tasks raise an alert after their grace period.
           </p>
         </div>
         <button type="button" className="btn btn--primary" onClick={openCreate}>
@@ -263,7 +266,7 @@ export function RoutinesPage() {
               </div>
               <div className="routine-list">
                 {petRoutines.map((routine) => {
-                  const badge = routineBadge(routine, todayStatus.get(routine.id))
+                  const badge = routineBadge(routine, routine.status)
                   const startsLater = routine.startDate && routine.startDate > todayISODate()
                   return (
                     <article
@@ -288,8 +291,17 @@ export function RoutinesPage() {
                           {routine.assignedTo?.name
                             ? `Assigned to ${routine.assignedTo.name}`
                             : 'Assigned to anyone'}
-                          {DUPLICATE_CHECKED.includes(routine.type) ? ' · Duplicate window 30 min' : ''}
+                          {routine.duplicateWindowMinutes ? ` · Duplicate window ${routine.duplicateWindowMinutes} min` : ''}
                         </small>
+                        {routine.nextScheduledAt && (
+                          <small>
+                            Next: {new Intl.DateTimeFormat('en-GB', {
+                              timeZone: routine.timeZone,
+                              dateStyle: 'medium',
+                              timeStyle: 'short',
+                            }).format(new Date(routine.nextScheduledAt))} · {routine.timeZone}
+                          </small>
+                        )}
                       </div>
                       <div className="routine-row-actions">
                         <span className={`status-badge ${badge.className}`}>{badge.label}</span>
@@ -400,7 +412,7 @@ export function RoutinesPage() {
               <fieldset className="field routine-type-field">
                 <legend>Event type</legend>
                 <div className="routine-type-options">
-                  {CARE_TYPES.map((type) => (
+                  {ROUTINE_TYPES.map((type) => (
                     <button
                       type="button"
                       key={type.value}
@@ -436,16 +448,30 @@ export function RoutinesPage() {
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="routine-time">Time</label>
+                  <label htmlFor="routine-time">Time (24-hour)</label>
                   <input
                     id="routine-time"
-                    type="time"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                    placeholder="20:35"
+                    maxLength={5}
+                    aria-describedby="routine-time-help"
                     required
                     value={form.time}
                     onChange={(event) => change('time', event.target.value)}
                   />
+                  <small id="routine-time-help">
+                    {timeZone} · 08:35 = morning; 20:35 = evening.
+                  </small>
                 </div>
               </div>
+              {pastTime && (
+                <p className="notice" role="status">
+                  {form.time} has already passed today. The first task will be on the next
+                  selected day. No alert is created for a time before you save the schedule.
+                </p>
+              )}
               <div className="routine-form-row">
                 <div className="field">
                   <label htmlFor="routine-assignee">Assign to</label>

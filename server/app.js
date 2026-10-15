@@ -7,6 +7,7 @@ import { query } from './db.js'
 import { createHouseholdRouter } from './households.js'
 import { createInviteRouter } from './invites.js'
 import { apiNotFound, errorHandler, memberOneErrorHandler } from './middleware/error-handler.js'
+import { alertsRouter } from './routes/alerts.js'
 import { careEventsRouter } from './routes/care-events.js'
 import { petsRouter } from './routes/pets.js'
 import { routinesRouter } from './routes/routines.js'
@@ -36,12 +37,12 @@ export function createApp() {
   app.use('/api/auth', createAuthRouter(query))
   app.use('/api/households', createHouseholdRouter(query))
   app.use('/api/invites', createInviteRouter(query))
-  // Member 1's routes keep their { error: "message" } format
   app.use(memberOneRoutes, memberOneErrorHandler)
 
   app.use('/api/pets', petsRouter)
   app.use('/api/care-events', careEventsRouter)
   app.use('/api/routines', routinesRouter)
+  app.use('/api/alerts', alertsRouter)
 
   app.use('/api', apiNotFound)
 

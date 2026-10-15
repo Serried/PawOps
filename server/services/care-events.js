@@ -1,4 +1,4 @@
-import { APP_TIMEZONE, OVERDUE_GRACE_MINUTES } from '../config.js'
+import { OVERDUE_GRACE_MINUTES } from '../config.js'
 import { query } from '../db.js'
 import { conflict, forbidden, notFound } from '../lib/http-error.js'
 import { withTransaction } from '../lib/transaction.js'
@@ -15,6 +15,7 @@ import {
   duplicateWindowMinutes,
   needsDuplicateCheck,
 } from './care-rules.js'
+import { generateRoutineTasks } from './routine-tasks.js'
 
 const EVENT_SELECT = `
   SELECT e.id, e.pet_id, p.name AS pet_name, p.household_id, e.type, e.title, e.note,
@@ -194,27 +195,8 @@ export async function listCareEvents(user, { householdId, petId, status, from, t
   }
   const householdIds = householdId ? [householdId] : await listUserHouseholdIds(user.id)
 
-  if (householdIds.length) {
-    await query(
-      `INSERT INTO care_events
-         (pet_id, type, title, scheduled_at, assigned_to, routine_id, created_by)
-       SELECT r.pet_id, r.type, r.title, due.at, r.assigned_to, r.id, r.created_by
-         FROM care_routines r
-         JOIN pets p ON p.id = r.pet_id
-        CROSS JOIN LATERAL (
-          SELECT (NOW() AT TIME ZONE $2::text)::date AS day,
-                 (((NOW() AT TIME ZONE $2::text)::date + r.time_of_day) AT TIME ZONE $2::text) AS at
-        ) due
-        WHERE r.active = TRUE
-          AND p.archived_at IS NULL
-          AND p.household_id = ANY($1::bigint[])
-          AND due.day >= r.start_date
-          AND due.at >= r.effective_from
-          AND EXTRACT(DOW FROM due.day)::integer = ANY(r.days_of_week)
-       ON CONFLICT (routine_id, scheduled_at) WHERE routine_id IS NOT NULL DO NOTHING`,
-      [householdIds, APP_TIMEZONE],
-    )
-  }
+  // Today's routine tasks (shared with the alert evaluator)
+  if (householdIds.length) await generateRoutineTasks({ householdIds })
 
   const params = [householdIds, user.id]
   const where = [

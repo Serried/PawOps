@@ -1,4 +1,5 @@
 import path from 'node:path'
+import 'dotenv/config'
 
 function positiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10)

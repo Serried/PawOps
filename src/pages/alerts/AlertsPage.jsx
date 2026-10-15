@@ -1,21 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
-import { careTypeLabel, completeCareEvent, listCareEvents } from '../api/careEvents.js'
-import { Icon } from '../components/Icon.jsx'
-import { useSession } from '../context/session.js'
-import { useApi } from '../hooks/useApi.js'
-import { useDuplicateGuard } from '../hooks/useDuplicateGuard.jsx'
-import { formatDayTime } from '../lib/format.js'
+import { acknowledgeAlert, listAlerts } from '../../api/alerts.js'
+import { careTypeLabel, completeCareEvent } from '../../api/careEvents.js'
+import { apiError } from '../../api/client.js'
+import { Icon } from '../../components/Icon.jsx'
+import { useSession } from '../../context/session.js'
+import { useApi } from '../../hooks/useApi.js'
+import { useDuplicateGuard } from '../../hooks/useDuplicateGuard.jsx'
+import { formatDayTime } from '../../lib/format.js'
 
 const MINUTE = 60_000
-const DAY = 24 * 60 * MINUTE
-const GRACE_MS = 15 * MINUTE
-const RECENT_MS = 7 * DAY
-const READ_KEY = 'pawops-alerts-read'
+const REFRESH_MS = 30_000
 
 const FILTERS = [
   ['all', 'All'],
   ['unread', 'Unread'],
-  ['overdue', 'Overdue'],
+  ['resolved', 'Resolved'],
 ]
 
 function formatDuration(ms) {
@@ -26,30 +25,6 @@ function formatDuration(ms) {
   return `${Math.floor(hours / 24)} d ${hours % 24} h`
 }
 
-function isCompletedLate(event) {
-  return (
-    event.status === 'done' &&
-    Boolean(event.completedAt) &&
-    new Date(event.completedAt) - new Date(event.scheduledAt) > GRACE_MS
-  )
-}
-
-
-function loadReadIds() {
-  try {
-    return JSON.parse(localStorage.getItem(READ_KEY) || '{}')
-  } catch {
-    return {}
-  }
-}
-
-function saveReadIds(value) {
-  try {
-    localStorage.setItem(READ_KEY, JSON.stringify(value))
-  } catch {
-  }
-}
-
 function alertIconTone(type) {
   if (type === 'medication') return 'rose'
   if (type === 'walk') return 'blue'
@@ -58,78 +33,73 @@ function alertIconTone(type) {
 
 export function AlertsPage() {
   const { household } = useSession()
-  const events = useApi(
-    () => listCareEvents({ householdId: household.id, limit: 200 }),
+  const alerts = useApi(
+    () => listAlerts({ householdId: household.id, status: 'all' }),
     `alerts:${household.id}`,
   )
   const { run, dialog } = useDuplicateGuard()
   const [filter, setFilter] = useState('all')
-  const [readIds, setReadIds] = useState(loadReadIds)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
   const [now, setNow] = useState(() => Date.now())
 
+  const reload = alerts.reload
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    const timer = setInterval(() => {
+      setNow(Date.now())
+      reload()
+    }, REFRESH_MS)
     return () => clearInterval(timer)
-  }, [])
+  }, [reload])
 
-  useEffect(() => {
-    saveReadIds(readIds)
-  }, [readIds])
-
-  const readSet = useMemo(() => new Set(readIds[household.id] ?? []), [readIds, household.id])
-
-  const rows = useMemo(
+  const rows = useMemo(() => alerts.data ?? [], [alerts.data])
+  const unreadCount = rows.filter((alert) => alert.status === 'active').length
+  const visible = useMemo(
     () =>
-      (events.data ?? [])
-        .filter(
-          (event) =>
-            event.status === 'overdue' ||
-            (isCompletedLate(event) && now - new Date(event.completedAt) < RECENT_MS),
-        )
-        .sort((a, b) => new Date(b.scheduledAt) - new Date(a.scheduledAt)),
-    [events.data, now],
+      rows.filter(
+        (alert) =>
+          filter === 'all' ||
+          (filter === 'unread' && alert.status === 'active') ||
+          (filter === 'resolved' && alert.status === 'resolved'),
+      ),
+    [rows, filter],
   )
-
-  const unreadCount = rows.filter((event) => !readSet.has(event.id)).length
-  const visible = rows.filter(
-    (event) =>
-      filter === 'all' ||
-      (filter === 'unread' && !readSet.has(event.id)) ||
-      (filter === 'overdue' && event.status === 'overdue'),
-  )
-
-  function markRead(id) {
-    setReadIds((old) => ({
-      ...old,
-      [household.id]: [...new Set([...(old[household.id] ?? []), id])],
-    }))
-  }
 
   function refresh() {
     setNow(Date.now())
-    events.reload()
+    reload()
   }
 
-  async function markDone(event) {
-    setBusyId(event.id)
+  async function markRead(alert) {
+    setBusyId(alert.id)
     setError('')
     try {
-      await run((override) => completeCareEvent(event.id, { override }), () => events.reload())
+      await acknowledgeAlert(alert.id)
+      reload()
     } catch (err) {
-      setError(err.message)
-      // Somebody else finished it first: show the current state
-      if (err.code === 'ALREADY_DONE') events.reload()
+      setError(apiError(err).message)
     } finally {
       setBusyId(null)
     }
   }
 
-  if (events.error) {
+  async function markDone(alert) {
+    setBusyId(alert.id)
+    setError('')
+    try {
+      await run((override) => completeCareEvent(alert.careEvent.id, { override }), () => reload())
+    } catch (err) {
+      setError(err.message)
+      if (err.code === 'ALREADY_DONE') reload()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (alerts.error) {
     return (
       <div className="notice notice--error" role="alert">
-        {events.error.message}
+        {alerts.error.message}
       </div>
     )
   }
@@ -146,7 +116,7 @@ export function AlertsPage() {
           <button
             type="button"
             className="btn btn--outline btn--small"
-            disabled={events.refreshing}
+            disabled={alerts.refreshing}
             onClick={refresh}
           >
             Refresh
@@ -164,7 +134,8 @@ export function AlertsPage() {
         <div>
           <span className="alerts-toolbar-label">Alerts</span>
           <p className="muted">
-            Care that is overdue now, and tasks finished more than 15 minutes late in the last 7 days.
+            One alert is raised for each routine task that is still not done after its grace
+            period. It is resolved when someone completes the task.
           </p>
         </div>
         <div className="alerts-filters" aria-label="Filter alerts">
@@ -183,7 +154,7 @@ export function AlertsPage() {
         </div>
       </div>
 
-      {!events.data ? (
+      {!alerts.data ? (
         <div className="card">
           <p className="muted">Loading alerts…</p>
         </div>
@@ -203,59 +174,64 @@ export function AlertsPage() {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((event) => {
-                  const overdue = event.status === 'overdue'
-                  const isRead = readSet.has(event.id)
-                  const lateBy = overdue
-                    ? now - new Date(event.scheduledAt)
-                    : new Date(event.completedAt) - new Date(event.scheduledAt)
+                {visible.map((alert) => {
+                  const { careEvent } = alert
+                  const resolved = alert.status === 'resolved'
+                  const isRead = alert.status !== 'active'
+                  const lateBy = resolved
+                    ? careEvent.completedAt &&
+                      new Date(careEvent.completedAt) - new Date(careEvent.scheduledAt)
+                    : now - new Date(careEvent.scheduledAt)
                   return (
-                    <tr key={event.id} className={isRead ? 'is-read' : ''}>
+                    <tr key={alert.id} className={isRead ? 'is-read' : ''}>
                       <td>
                         <div className="alert-name">
-                          <span className={`alert-pet-icon alert-pet-icon--${alertIconTone(event.type)}`}>
-                            <Icon name={event.type} size={16} />
+                          <span className={`alert-pet-icon alert-pet-icon--${alertIconTone(careEvent.type)}`}>
+                            <Icon name={careEvent.type} size={16} />
                           </span>
                           <div>
                             <strong>
-                              {event.petName} · {event.title}
+                              {alert.petName} · {careEvent.title}
                             </strong>
-                            <small>
-                              {careTypeLabel(event.type)}
-                              {event.assignedTo?.name ? ` · ${event.assignedTo.name}` : ''}
-                            </small>
-                            {!overdue && (
+                            <small>{careTypeLabel(careEvent.type)}</small>
+                            {resolved && (
                               <small>
-                                Completed{event.completedBy?.name ? ` by ${event.completedBy.name}` : ''}{' '}
-                                at {formatDayTime(event.completedAt)}
+                                Completed{careEvent.completedBy ? ` by ${careEvent.completedBy}` : ''}
+                                {careEvent.completedAt
+                                  ? ` at ${formatDayTime(careEvent.completedAt)}`
+                                  : ''}
                               </small>
                             )}
                           </div>
                         </div>
                       </td>
-                      <td className="alert-due">{formatDayTime(event.scheduledAt)}</td>
-                      <td className={overdue ? 'alert-late' : ''}>{formatDuration(lateBy)}</td>
+                      <td className="alert-due">{formatDayTime(careEvent.scheduledAt)}</td>
+                      <td className={resolved ? '' : 'alert-late'}>
+                        {lateBy ? formatDuration(lateBy) : '—'}
+                      </td>
                       <td>
-                        <span className={`status-badge ${overdue ? 'status-badge--overdue' : 'status-badge--muted'}`}>
-                          {overdue ? 'Overdue' : 'Completed late'}
+                        <span
+                          className={`status-badge ${resolved ? 'status-badge--muted' : 'status-badge--overdue'}`}
+                        >
+                          {resolved ? 'Resolved' : 'Overdue'}
                         </span>
                       </td>
                       <td className="alert-action">
-                        {overdue && (
+                        {!resolved && (
                           <button
                             type="button"
                             className="btn btn--primary btn--small"
-                            disabled={busyId === event.id}
-                            onClick={() => markDone(event)}
+                            disabled={busyId === alert.id}
+                            onClick={() => markDone(alert)}
                           >
-                            {busyId === event.id ? 'Saving…' : 'Mark as done'}
+                            {busyId === alert.id ? 'Saving…' : 'Mark as done'}
                           </button>
                         )}{' '}
                         <button
                           type="button"
                           className="btn btn--quiet btn--small"
-                          disabled={isRead}
-                          onClick={() => markRead(event.id)}
+                          disabled={isRead || busyId === alert.id}
+                          onClick={() => markRead(alert)}
                         >
                           {isRead ? 'Read' : 'Mark as read'}
                         </button>
@@ -270,7 +246,7 @@ export function AlertsPage() {
                         <Icon name="check" size={22} />
                       </span>
                       <strong>{filter === 'unread' ? 'You’re all caught up' : 'No alerts to show'}</strong>
-                      <p className="muted">When care is missed or completed late, it will appear here.</p>
+                      <p className="muted">When a routine task is missed, it will appear here.</p>
                     </td>
                   </tr>
                 )}

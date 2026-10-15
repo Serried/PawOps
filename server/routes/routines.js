@@ -1,12 +1,13 @@
 import { Router } from 'express'
-import { APP_TIMEZONE } from '../config.js'
+import { APP_TIMEZONE, DUPLICATE_CHECK_TYPES, DUPLICATE_WINDOW_MINUTES, OVERDUE_GRACE_MINUTES } from '../config.js'
 import { query } from '../db.js'
 import { badRequest, notFound } from '../lib/http-error.js'
 import { withTransaction } from '../lib/transaction.js'
 import { userNameSql } from '../lib/user-name.js'
-import { paramId, Validator } from '../lib/validate.js'
+import { paramId, toId, Validator } from '../lib/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { assertAllMembers, loadAccessiblePet } from '../services/access.js'
+import { assertAllMembers, assertHouseholdMember, listUserHouseholdIds, loadAccessiblePet } from '../services/access.js'
+import { generateRoutineTasks } from '../services/routine-tasks.js'
 
 const TYPES = ['feeding', 'water', 'walk', 'medication', 'vet_visit', 'grooming']
 const DEFAULT_TITLES = {
@@ -51,6 +52,7 @@ function routineValues(body) {
     const valid =
       typeof body.startDate === 'string' &&
       /^\d{4}-\d{2}-\d{2}$/.test(body.startDate) &&
+      !Number.isNaN(new Date(`${body.startDate}T00:00:00Z`).getTime()) &&
       new Date(`${body.startDate}T00:00:00Z`).toISOString().slice(0, 10) === body.startDate
     if (!valid) throw badRequest('startDate must be a date in YYYY-MM-DD format')
   }
@@ -64,20 +66,47 @@ export const routinesRouter = Router()
 routinesRouter.use(requireAuth)
 
 routinesRouter.get('/', async (req, res) => {
-  const householdId = req.query.householdId ? Number(req.query.householdId) : null
-  if (householdId !== null && !Number.isSafeInteger(householdId)) {
+  const householdId = req.query.householdId === undefined ? null : toId(req.query.householdId)
+  if (req.query.householdId !== undefined && householdId === null) {
     throw badRequest('householdId must be a positive integer id')
   }
+  if (householdId) await assertHouseholdMember(req.user.id, householdId)
+  const householdIds = householdId ? [householdId] : await listUserHouseholdIds(req.user.id)
+  if (householdIds.length) await generateRoutineTasks({ householdIds })
   const result = await query(
     `SELECT r.id, r.pet_id, p.name AS pet_name, r.type, r.title,
             to_char(r.time_of_day, 'HH24:MI') AS time, r.days_of_week,
             r.active, to_char(r.start_date, 'YYYY-MM-DD') AS start_date, r.assigned_to,
+            next_due.at AS next_scheduled_at,
+            CASE WHEN NOT r.active THEN 'paused'
+                 WHEN today.status = 'done' THEN 'done'
+                 WHEN today.scheduled_at + make_interval(mins => $4::int) < NOW() THEN 'overdue'
+                 ELSE 'upcoming' END AS status,
             CASE WHEN u.id IS NULL THEN NULL ELSE json_build_object('id',u.id,'name',${userNameSql('u')}) END AS assignee
        FROM care_routines r JOIN pets p ON p.id=r.pet_id
        LEFT JOIN users u ON u.id=r.assigned_to
+       LEFT JOIN LATERAL (
+         SELECT e.status, e.scheduled_at FROM care_events e
+          WHERE e.routine_id = r.id
+            AND (e.scheduled_at AT TIME ZONE $3::text)::date = (NOW() AT TIME ZONE $3::text)::date
+          ORDER BY e.scheduled_at DESC LIMIT 1
+       ) today ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT ((base.day + offset_day + r.time_of_day) AT TIME ZONE $3::text) AS at
+           FROM (SELECT GREATEST((NOW() AT TIME ZONE $3::text)::date, r.start_date,
+                     (r.effective_from AT TIME ZONE $3::text)::date) AS day) base
+          CROSS JOIN generate_series(0, 7) offset_day
+          WHERE r.active
+            AND EXTRACT(DOW FROM base.day + offset_day)::int = ANY(r.days_of_week)
+            AND ((base.day + offset_day + r.time_of_day) AT TIME ZONE $3::text) >= GREATEST(NOW(), r.effective_from)
+            AND NOT EXISTS (SELECT 1 FROM care_events e WHERE e.routine_id = r.id
+              AND e.scheduled_at = ((base.day + offset_day + r.time_of_day) AT TIME ZONE $3::text)
+              AND e.status = 'done')
+          ORDER BY at LIMIT 1
+       ) next_due ON TRUE
       WHERE p.household_id IN (SELECT household_id FROM household_members WHERE user_id=$1)
         AND p.archived_at IS NULL AND ($2::bigint IS NULL OR p.household_id=$2) ORDER BY p.name, r.time_of_day`,
-    [req.user.id, householdId],
+    [req.user.id, householdId, APP_TIMEZONE, OVERDUE_GRACE_MINUTES],
   )
   res.json({
     routines: result.rows.map((r) => ({
@@ -89,6 +118,11 @@ routinesRouter.get('/', async (req, res) => {
       time: r.time,
       daysOfWeek: r.days_of_week,
       active: r.active,
+      status: r.status,
+      nextScheduledAt: r.next_scheduled_at,
+      timeZone: APP_TIMEZONE,
+      graceMinutes: OVERDUE_GRACE_MINUTES,
+      duplicateWindowMinutes: DUPLICATE_CHECK_TYPES.includes(r.type) ? DUPLICATE_WINDOW_MINUTES : null,
       startDate: r.start_date,
       assignedTo: r.assignee,
     })),
@@ -123,6 +157,7 @@ routinesRouter.patch('/:routineId', async (req, res) => {
                 effective_from = CASE WHEN $2::boolean AND NOT r.active THEN NOW() ELSE r.effective_from END
            FROM pets p
           WHERE r.pet_id = p.id AND r.id = $1
+            AND p.archived_at IS NULL
             AND p.household_id IN (SELECT household_id FROM household_members WHERE user_id = $3)
           RETURNING r.id, r.active`,
         [id, active, req.user.id],
