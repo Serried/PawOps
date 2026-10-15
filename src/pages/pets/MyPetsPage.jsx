@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { listPets } from '../../api/pets.js'
+import { EmptyState, PageLoading, RequestError, StatusNotice } from '../../components/AsyncState.jsx'
 import { Icon } from '../../components/Icon.jsx'
 import { PetAvatar } from '../../components/PetAvatar.jsx'
 import { useSession } from '../../context/session.js'
@@ -8,6 +9,7 @@ import { formatAge } from '../../lib/format.js'
 
 export function MyPetsPage() {
   const { household } = useSession()
+  const location = useLocation()
   const pets = useApi(() => listPets(household.id), `pets:${household.id}`)
 
   return (
@@ -22,10 +24,13 @@ export function MyPetsPage() {
         </Link>
       </header>
 
-      {pets.error && (
-        <div className="notice notice--error" role="alert">
-          {pets.error.message}
-        </div>
+      {location.state?.notice && <StatusNotice>{location.state.notice}</StatusNotice>}
+
+      {pets.loading && <PageLoading label="Loading pets…" />}
+      {pets.error && <RequestError error={pets.error} resourceName="pets" onRetry={pets.reload} backTo="/dashboard" backLabel="Back to dashboard" />}
+
+      {pets.data?.length === 0 && (
+        <EmptyState title="No pets yet" message="Add your first pet to start managing its care." actionLabel="Add pet" actionTo="/pets/new" />
       )}
 
       {pets.data && pets.data.length > 0 && (

@@ -7,6 +7,7 @@ import { MyPetsPage } from './pages/pets/MyPetsPage.jsx'
 import { AddPetPage, EditPetPage } from './pages/pets/PetFormPages.jsx'
 import { PetProfilePage } from './pages/pets/PetProfilePage.jsx'
 import { PlaceholderPage } from './pages/PlaceholderPage.jsx'
+import { NotFoundPage } from './pages/NotFoundPage.jsx'
 import './styles/pawops.css'
 
 // Styles are scoped to .pc-page so Member 1's screens are unaffected
@@ -45,7 +46,7 @@ export default function PawOpsApp({ user, household, onLogout, onSwitchHousehold
 
           <Route path="members" element={membersPage} />
 
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
     </SessionProvider>

@@ -16,10 +16,11 @@ export function DuplicateWarningDialog({ warning, busy, onCancel, onConfirm }) {
 
   return (
     <div className="dialog-backdrop" role="presentation">
-      <div className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="duplicate-message">
+      <div className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="duplicate-title" aria-describedby="duplicate-message">
         <div className="dialog__icon">
           <Icon name="alert" size={24} />
         </div>
+        <h2 id="duplicate-title" className="card-title">Possible duplicate care</h2>
         <p id="duplicate-message" className="dialog__message">
           {warning.message}
         </p>
@@ -29,7 +30,7 @@ export function DuplicateWarningDialog({ warning, busy, onCancel, onConfirm }) {
             Cancel
           </button>
           <button type="button" className="btn btn--danger-outline" onClick={onConfirm} disabled={busy}>
-            Override
+            Continue anyway
           </button>
         </div>
       </div>
