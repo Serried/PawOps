@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n web,api -c cyan,green \"npm:dev:web\" \"npm:dev:api\"",
+    "dev": "concurrently -k -n web,api,alerts -c cyan,green,yellow \"npm:dev:web\" \"npm:dev:api\" \"npm:alerts:watch\"",
     "dev:web": "vite",
     "dev:api": "node --watch server/index.js",
     "start": "node server/index.js",
