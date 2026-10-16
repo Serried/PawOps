@@ -462,7 +462,7 @@ export function RoutinesPage() {
                     onChange={(event) => change('time', event.target.value)}
                   />
                   <small id="routine-time-help">
-                    {timeZone} · 08:35 = morning; 20:35 = evening.
+                    {timeZone}
                   </small>
                 </div>
               </div>

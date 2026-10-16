@@ -68,8 +68,6 @@ export async function listAlerts(user, { householdId, status = 'all', limit = 10
   if (householdId) await assertHouseholdMember(user.id, householdId)
   const householdIds = householdId ? [householdId] : await listUserHouseholdIds(user.id)
 
-  if (householdIds.length) await evaluateOverdueAlerts({ householdIds })
-
   const where = ['al.household_id = ANY($1::bigint[])', 'p.archived_at IS NULL']
   if (status === 'active') where.push(`e.status = 'upcoming' AND al.acknowledged_at IS NULL`)
   const result = await query(
