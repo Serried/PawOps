@@ -1,4 +1,5 @@
 import path from 'node:path'
+import 'dotenv/config'
 
 function positiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10)
@@ -27,6 +28,8 @@ export const OVERDUE_GRACE_MINUTES = positiveInt(
   process.env.OVERDUE_GRACE_MINUTES,
   15,
 )
+
+export const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Bangkok'
 
 export const PET_SEXES = ['male', 'female', 'unknown']
 

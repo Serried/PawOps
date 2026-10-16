@@ -6,8 +6,9 @@ import { DashboardPage } from './pages/dashboard/DashboardPage.jsx'
 import { MyPetsPage } from './pages/pets/MyPetsPage.jsx'
 import { AddPetPage, EditPetPage } from './pages/pets/PetFormPages.jsx'
 import { PetProfilePage } from './pages/pets/PetProfilePage.jsx'
-import { PlaceholderPage } from './pages/PlaceholderPage.jsx'
 import { NotFoundPage } from './pages/NotFoundPage.jsx'
+import { RoutinesPage } from './pages/routines/RoutinesPage.jsx'
+import { AlertsPage } from './pages/alerts/AlertsPage.jsx'
 import './styles/pawops.css'
 
 // Styles are scoped to .pc-page so Member 1's screens are unaffected
@@ -39,9 +40,9 @@ export default function PawOpsApp({ user, household, onLogout, onSwitchHousehold
             <Route path="pets/:petId/edit" element={<EditPetPage />} />
             <Route path="care/new" element={<AddCareEventPage />} />
 
+            <Route path="routines" element={<RoutinesPage />} />
+            <Route path="alerts" element={<AlertsPage />} />
             <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="routines" element={<PlaceholderPage title="Routines" />} />
-            <Route path="alerts" element={<PlaceholderPage title="Alerts" />} />
           </Route>
 
           <Route path="members" element={membersPage} />

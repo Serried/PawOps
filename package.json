@@ -12,6 +12,8 @@
     "db:down": "docker compose down",
     "db:migrate": "node server/migrate.js",
     "db:seed": "node server/seed-dev.js",
+    "alerts:tick": "node server/jobs/alert-tick.js",
+    "alerts:watch": "node server/jobs/alert-tick.js --loop",
     "build": "vite build",
     "lint": "eslint .",
     "test": "npm run test:auth && vitest run",

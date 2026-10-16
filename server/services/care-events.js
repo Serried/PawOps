@@ -15,6 +15,7 @@ import {
   duplicateWindowMinutes,
   needsDuplicateCheck,
 } from './care-rules.js'
+import { generateRoutineTasks } from './routine-tasks.js'
 
 const EVENT_SELECT = `
   SELECT e.id, e.pet_id, p.name AS pet_name, p.household_id, e.type, e.title, e.note,
@@ -193,6 +194,9 @@ export async function listCareEvents(user, { householdId, petId, status, from, t
     await assertHouseholdMember(user.id, householdId)
   }
   const householdIds = householdId ? [householdId] : await listUserHouseholdIds(user.id)
+
+  // Today's routine tasks (shared with the alert evaluator)
+  if (householdIds.length) await generateRoutineTasks({ householdIds })
 
   const params = [householdIds, user.id]
   const where = [
