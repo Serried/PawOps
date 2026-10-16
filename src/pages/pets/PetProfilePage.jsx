@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { completeCareEvent, listPetEvents } from '../../api/careEvents.js'
 import { getPet } from '../../api/pets.js'
 import { Icon } from '../../components/Icon.jsx'
+import { EmptyState, PageLoading, RequestError, StatusNotice } from '../../components/AsyncState.jsx'
 import { PetAvatar } from '../../components/PetAvatar.jsx'
 import { StatusBadge } from '../../components/StatusBadge.jsx'
 import { useApi } from '../../hooks/useApi.js'
@@ -38,17 +39,23 @@ function scheduledLabel(event) {
 
 export function PetProfilePage() {
   const { petId } = useParams()
+  const location = useLocation()
   const pet = useApi(() => getPet(petId), `pet:${petId}`)
   const events = useApi(() => loadEvents(petId), `pet-events:${petId}`)
   const { run, dialog } = useDuplicateGuard()
   const [busyId, setBusyId] = useState(null)
   const [actionError, setActionError] = useState(null)
+  const [actionNotice, setActionNotice] = useState(location.state?.notice ?? null)
 
   const markDone = async (event) => {
     setBusyId(event.id)
     setActionError(null)
+    setActionNotice(null)
     try {
-      await run((override) => completeCareEvent(event.id, { override }), events.reload)
+      await run((override) => completeCareEvent(event.id, { override }), () => {
+        events.reload()
+        setActionNotice(`${event.title} was marked as completed.`)
+      })
     } catch (error) {
       setActionError(error.message)
     } finally {
@@ -56,19 +63,8 @@ export function PetProfilePage() {
     }
   }
 
-  if (pet.error) {
-    return (
-      <section>
-        <Link to="/pets" className="back-link">
-          <Icon name="back" size={16} /> My Pets
-        </Link>
-        <div className="notice notice--error" role="alert">
-          {pet.error.status === 403 ? "You don't have access to this pet." : pet.error.message}
-        </div>
-      </section>
-    )
-  }
-  if (!pet.data) return null
+  if (pet.loading) return <PageLoading label="Loading pet profile…" />
+  if (pet.error) return <RequestError error={pet.error} resourceName="Pet" onRetry={pet.reload} backTo="/pets" backLabel="Back to pets" />
 
   const profile = pet.data
   const age = formatAge(profile.birthDate)
@@ -96,13 +92,13 @@ export function PetProfilePage() {
         </Link>
       </div>
 
-      {(events.error || actionError) && (
-        <div className="notice notice--error" role="alert">
-          {actionError ?? events.error.message}
-        </div>
-      )}
+      {actionNotice && <StatusNotice>{actionNotice}</StatusNotice>}
 
-      <div className="profile-columns">
+      {actionError && <StatusNotice type="error">{actionError}</StatusNotice>}
+      {events.loading && <PageLoading label={`Loading ${profile.name}'s care…`} rows={2} />}
+      {events.error && <RequestError error={events.error} resourceName="care history" onRetry={events.reload} />}
+
+      {events.data && <div className="profile-columns">
         <div className="card">
           <div className="card-heading">
             <h2 className="card-title">Routines</h2>
@@ -110,7 +106,9 @@ export function PetProfilePage() {
               Manage
             </Link>
           </div>
-          <ul className="task-list">
+          {events.data.routines.length === 0 ? (
+            <EmptyState title="No care routines scheduled" message={`There is no upcoming care for ${profile.name}.`} actionLabel="Add care event" actionTo={`/care/new?petId=${profile.id}`} icon="clock" />
+          ) : <ul className="task-list">
             {events.data?.routines.map((event) => (
               <li key={event.id} className={`task-row ${event.status === 'overdue' ? 'task-row--overdue' : ''}`}>
                 <span className="care-icon">
@@ -137,11 +135,12 @@ export function PetProfilePage() {
                 <StatusBadge status={event.status} />
               </li>
             ))}
-          </ul>
+          </ul>}
         </div>
 
         <div className="card">
           <h2 className="card-title">Care timeline</h2>
+          {timeline.length === 0 && <EmptyState title="No care activity recorded yet" message={`Completed care for ${profile.name} will appear here.`} icon="clock" />}
           {timeline.map((group) => (
             <div key={group.label} className="timeline-group">
               <h3 className="timeline-group__label">{group.label}</h3>
@@ -171,7 +170,7 @@ export function PetProfilePage() {
             </div>
           ))}
         </div>
-      </div>
+      </div>}
     </section>
   )
 }
