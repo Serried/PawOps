@@ -53,6 +53,15 @@ describe('PBI-06 Add Care Event', () => {
     expect(new Date(response.body.event.scheduledAt).toISOString()).toBe(scheduledAt)
   })
 
+  it('records water, as listed in PBI-06', async () => {
+    const created = await schedule(tanakrit, { type: 'water', title: '' })
+    expect(created.status).toBe(201)
+    expect(created.body.event).toMatchObject({ type: 'water', title: 'Fresh water' })
+    const done = await complete(ryuu, created.body.event.id)
+    expect(done.status).toBe(200)
+    expect(done.body.event).toMatchObject({ status: 'done', completedBy: { id: ryuu.id } })
+  })
+
   it('uses the type as title when the title is empty', async () => {
     const response = await schedule(tanakrit, { type: 'grooming', title: '' })
     expect(response.body.event.title).toBe('Grooming')
