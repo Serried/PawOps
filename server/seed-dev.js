@@ -1,49 +1,59 @@
-// Demo data (npm run db:seed); skipped if it already exists
-import { pool } from './db.js'
+import 'dotenv/config'
+import { pathToFileURL } from 'node:url'
 import { hashPassword } from './passwords.js'
 
 const DEMO_EMAIL_DOMAIN = '@pawops.dev'
-const DEMO_PASSWORD = 'pawops123'
 
-async function seed() {
+export function seedPassword(env) {
+  if (!['development', 'test'].includes(env.NODE_ENV) || env.ALLOW_DEMO_SEED !== 'true') {
+    throw new Error('Demo seed requires NODE_ENV=development or test and ALLOW_DEMO_SEED=true.')
+  }
+  if (!env.SEED_PASSWORD || env.SEED_PASSWORD.trim().length < 12) {
+    throw new Error('SEED_PASSWORD must contain at least 12 non-padding characters.')
+  }
+  return env.SEED_PASSWORD
+}
+
+async function ensureRow(client, select, identity, insert, values) {
+  const existing = await client.query(select, identity)
+  if (existing.rows.length) return existing.rows[0].id
+  const result = await client.query(insert, values)
+  return result.rows[0].id
+}
+
+export async function seed(pool, env = process.env) {
+  const password = seedPassword(env)
   const client = await pool.connect()
   try {
-    const existing = await client.query('SELECT 1 FROM users WHERE email LIKE $1 LIMIT 1', [
-      `%${DEMO_EMAIL_DOMAIN}`,
-    ])
-    if (existing.rowCount > 0) {
-      console.log('Demo data already present — skipping')
-      return
-    }
-
     await client.query('BEGIN')
+    await client.query('SELECT pg_advisory_xact_lock(728401, 8)')
 
     const users = {}
     for (const name of ['Tanakrit', 'Ryuu', 'Pim', 'Nok', 'Olive']) {
-      const result = await client.query(
+      users[name] = await ensureRow(client,
+        'SELECT id FROM users WHERE email = $1', [`${name.toLowerCase()}${DEMO_EMAIL_DOMAIN}`],
         'INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id',
-        [`${name.toLowerCase()}${DEMO_EMAIL_DOMAIN}`, await hashPassword(DEMO_PASSWORD), name],
+        [`${name.toLowerCase()}${DEMO_EMAIL_DOMAIN}`, await hashPassword(password), name],
       )
-      users[name] = Number(result.rows[0].id)
     }
 
-    const home = await client.query(
+    const homeId = await ensureRow(client,
+      'SELECT id FROM households WHERE lower(btrim(name)) = lower(btrim($1)) ORDER BY id LIMIT 1', ["Tanakrit's Household"],
       "INSERT INTO households (name) VALUES ('Tanakrit''s Household') RETURNING id",
     )
-    const homeId = Number(home.rows[0].id)
     await client.query(
       `INSERT INTO household_members (household_id, user_id, role) VALUES
-         ($1, $2, 'owner'), ($1, $3, 'member'), ($1, $4, 'member'), ($1, $5, 'member')`,
+         ($1, $2, 'owner'), ($1, $3, 'member'), ($1, $4, 'member'), ($1, $5, 'member')
+       ON CONFLICT (household_id, user_id) DO NOTHING`,
       [homeId, users.Tanakrit, users.Ryuu, users.Pim, users.Nok],
     )
 
-    // Another household, for the 403 demo
-    const other = await client.query(
+    const otherId = await ensureRow(client,
+      'SELECT id FROM households WHERE lower(btrim(name)) = lower(btrim($1)) ORDER BY id LIMIT 1', ["Olive's Household"],
       "INSERT INTO households (name) VALUES ('Olive''s Household') RETURNING id",
     )
-    const otherId = Number(other.rows[0].id)
     await client.query(
-      "INSERT INTO household_members (household_id, user_id, role) VALUES ($1, $2, 'owner')",
+      "INSERT INTO household_members (household_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT (household_id, user_id) DO NOTHING",
       [otherId, users.Olive],
     )
 
@@ -55,21 +65,21 @@ async function seed() {
       ['Biscuit', 'Dog', 'Beagle', '2020-05-20', 10.1, 'male', null, otherId],
     ]
     for (const [name, species, breed, birthDate, weight, sex, notes, householdId] of petRows) {
-      const result = await client.query(
+      pets[name] = await ensureRow(client,
+        'SELECT id FROM pets WHERE household_id = $1 AND name = $2 ORDER BY id LIMIT 1', [householdId, name],
         `INSERT INTO pets (household_id, name, species, breed, birth_date, weight_kg, sex, health_notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
         [householdId, name, species, breed, birthDate, weight, sex, notes],
       )
-      pets[name] = Number(result.rows[0].id)
     }
 
     await client.query(
       `INSERT INTO pet_caretakers (pet_id, user_id) VALUES
-         ($1, $4), ($1, $5), ($2, $6), ($3, $6), ($3, $4)`,
+         ($1, $4), ($1, $5), ($2, $6), ($3, $6), ($3, $4)
+       ON CONFLICT (pet_id, user_id) DO NOTHING`,
       [pets.Mochi, pets.Luna, pets.Pudding, users.Ryuu, users.Pim, users.Nok],
     )
 
-    // [pet, type, title, minutesFromNow, assignee, doneBy, note]
     const events = [
       ['Mochi', 'feeding', 'Breakfast', -360, 'Ryuu', 'Ryuu', 'Ate everything.'],
       ['Mochi', 'medication', 'Joint supplement', -300, 'Tanakrit', 'Tanakrit', 'Hidden in a small treat.'],
@@ -83,20 +93,22 @@ async function seed() {
       ['Biscuit', 'feeding', 'Breakfast', -200, 'Olive', 'Olive', null],
     ]
     for (const [pet, type, title, minutes, assignee, doneBy, note] of events) {
-      await client.query(
+      await ensureRow(client,
+        'SELECT id FROM care_events WHERE pet_id = $1 AND type = $2 AND title = $3 ORDER BY id LIMIT 1',
+        [pets[pet], type, title],
         `INSERT INTO care_events
            (pet_id, type, title, note, scheduled_at, assigned_to, status,
             completed_at, completed_by, created_by)
          VALUES ($1, $2, $3, $4, NOW() + make_interval(mins => $5), $6,
                  CASE WHEN $7::bigint IS NULL THEN 'upcoming' ELSE 'done' END,
                  CASE WHEN $7::bigint IS NULL THEN NULL ELSE NOW() + make_interval(mins => $5 + 5) END,
-                 $7, $8)`,
+                 $7, $8) RETURNING id`,
         [pets[pet], type, title, note, minutes, users[assignee], doneBy ? users[doneBy] : null, users[assignee]],
       )
     }
 
     await client.query('COMMIT')
-    console.log(`Seeded demo data. Sign in with password "${DEMO_PASSWORD}":`)
+    console.log('Demo data ready. Existing passwords and records were preserved. Demo accounts:')
     for (const name of Object.keys(users)) {
       console.log(`  ${name.toLowerCase()}${DEMO_EMAIL_DOMAIN}${name === 'Olive' ? '  (another household)' : ''}`)
     }
@@ -105,11 +117,19 @@ async function seed() {
     throw error
   } finally {
     client.release()
-    await pool.end()
   }
 }
 
-seed().catch((error) => {
-  console.error('Seeding failed', error)
-  process.exitCode = 1
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  let pool
+  try {
+    seedPassword(process.env)
+    pool = (await import('./db.js')).pool
+    await seed(pool)
+  } catch {
+    console.error('Seeding failed. Check NODE_ENV, ALLOW_DEMO_SEED, SEED_PASSWORD and database configuration; run migrations first.')
+    process.exitCode = 1
+  } finally {
+    if (pool) await pool.end()
+  }
+}

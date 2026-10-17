@@ -18,7 +18,7 @@
     "lint": "eslint .",
     "test": "npm run test:auth && vitest run",
     "test:ci": "node scripts/test-with-postgres.mjs",
-    "test:auth": "node --test server/passwords.test.js server/auth.test.js server/households.test.js server/invites.test.js",
+    "test:auth": "node --test server/passwords.test.js server/auth.test.js server/households.test.js server/invites.test.js server/seed-dev.test.js",
     "test:unit": "vitest run --config vitest.unit.config.js",
     "test:watch": "vitest",
     "preview": "vite preview"
