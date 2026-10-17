@@ -1,7 +1,7 @@
 import request from 'supertest'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../../server/app.js'
-import { APP_TIMEZONE } from '../../server/config.js'
+import { APP_TIMEZONE, OVERDUE_GRACE_MINUTES } from '../../server/config.js'
 import { query } from '../../server/db.js'
 import { evaluateOverdueAlerts } from '../../server/services/alerts.js'
 import { as, createHousehold, createPet } from '../helpers/fixtures.js'
@@ -28,7 +28,6 @@ async function createRoutine({ time = '20:00', active = true } = {}) {
   return Number(result.rows[0].id)
 }
 
-// A routine task that was due `minutesAgo` minutes ago
 async function routineTask(routineId, { minutesAgo, status = 'upcoming' } = {}) {
   const done = status === 'done'
   const result = await query(
@@ -45,6 +44,21 @@ async function routineTask(routineId, { minutesAgo, status = 'upcoming' } = {}) 
 async function countAlerts(eventId) {
   const result = await query('SELECT COUNT(*) AS n FROM alerts WHERE care_event_id = $1', [eventId])
   return Number(result.rows[0].n)
+}
+
+async function oneOffTask({ minutesAgo = OVERDUE_GRACE_MINUTES + 10 } = {}) {
+  const response = await request(app)
+    .post(`/api/pets/${mochi.id}/events`)
+    .set(as(tanakrit))
+    .send({
+      type: 'walk',
+      title: 'One-off walk',
+      scheduledAt: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+      assignedToId: ryuu.id,
+    })
+  expect(response.status).toBe(201)
+  expect(response.body.event.routineId).toBeNull()
+  return response.body.event.id
 }
 
 function minutesSinceLocalMidnight() {
@@ -71,19 +85,13 @@ describe('PBI-11 an overdue alert is created exactly once', () => {
     expect(await countAlerts(eventId)).toBe(1)
   })
 
-  it('does not alert inside the grace period, for done tasks or for one-off tasks', async () => {
+  it('does not alert inside the grace period or for done routine tasks', async () => {
     const routineId = await createRoutine()
     const recent = await routineTask(routineId, { minutesAgo: 0 })
     const finished = await routineTask(routineId, { minutesAgo: 120, status: 'done' })
-    const oneOff = await query(
-      `INSERT INTO care_events (pet_id, type, title, scheduled_at, created_by)
-       VALUES ($1, 'walk', 'Walk', NOW() - INTERVAL '2 hours', $2) RETURNING id`,
-      [mochi.id, tanakrit.id],
-    )
     await evaluateOverdueAlerts()
     expect(await countAlerts(recent)).toBe(0)
     expect(await countAlerts(finished)).toBe(0)
-    expect(await countAlerts(Number(oneOff.rows[0].id))).toBe(0)
   })
 
   it('does not alert for a paused routine', async () => {
@@ -93,7 +101,6 @@ describe('PBI-11 an overdue alert is created exactly once', () => {
   })
 
   it('creates the task and its alert without anyone opening the app (background job)', async () => {
-    // A 00:00 routine is more than 15 minutes late any time after 00:15 local time
     if (minutesSinceLocalMidnight() < 20) return
     const routineId = await createRoutine({ time: '00:00' })
     await query(
@@ -109,6 +116,80 @@ describe('PBI-11 an overdue alert is created exactly once', () => {
       [routineId],
     )
     expect(Number(result.rows[0].n)).toBe(1)
+  })
+})
+
+describe('overdue alerts for Add care event', () => {
+  it('appears for household members and becomes Resolved after completion', async () => {
+    const eventId = await oneOffTask()
+    await evaluateOverdueAlerts({ householdIds: [home.householdId] })
+    const list = await request(app).get('/api/alerts?status=active').set(as(ryuu))
+    expect(list.status).toBe(200)
+    expect(list.body.alerts).toHaveLength(1)
+    const alert = list.body.alerts[0]
+    expect(alert).toMatchObject({
+      routineId: null,
+      petName: 'Mochi',
+      status: 'active',
+      careEvent: { id: eventId, type: 'walk', title: 'One-off walk' },
+    })
+    const completed = await request(app).post(`/api/care-events/${eventId}/complete`)
+      .set(as(ryuu)).send({})
+    expect(completed.status).toBe(200)
+    await evaluateOverdueAlerts({ householdIds: [home.householdId] })
+    const active = await request(app).get('/api/alerts?status=active').set(as(tanakrit))
+    expect(active.body.alerts).toHaveLength(0)
+    const history = await request(app).get('/api/alerts').set(as(tanakrit))
+    expect(history.body.alerts).toHaveLength(1)
+    expect(history.body.alerts[0]).toMatchObject({
+      id: alert.id, status: 'resolved', careEvent: { completedBy: 'Ryuu' },
+    })
+  })
+
+  it('creates exactly one alert after repeated and concurrent worker passes', async () => {
+    const eventId = await oneOffTask()
+    for (let run = 0; run < 50; run += 1) {
+      await evaluateOverdueAlerts({ householdIds: [home.householdId] })
+    }
+    await Promise.all(Array.from({ length: 10 }, () =>
+      evaluateOverdueAlerts({ householdIds: [home.householdId] })))
+    expect(await countAlerts(eventId)).toBe(1)
+  })
+
+  it('skips future tasks, tasks inside the grace period, and completed tasks', async () => {
+    const future = await oneOffTask({ minutesAgo: -60 })
+    const recent = await oneOffTask({ minutesAgo: 0 })
+    const finished = await oneOffTask()
+    const completion = await request(app).post(`/api/care-events/${finished}/complete`)
+      .set(as(ryuu)).send({})
+    expect(completion.status).toBe(200)
+    await evaluateOverdueAlerts({ householdIds: [home.householdId] })
+    for (const id of [future, recent, finished]) expect(await countAlerts(id)).toBe(0)
+  })
+
+  it('does not create alerts for an archived pet', async () => {
+    const eventId = await oneOffTask()
+    await query('UPDATE pets SET archived_at = NOW() WHERE id = $1', [mochi.id])
+    await evaluateOverdueAlerts({ householdIds: [home.householdId] })
+    expect(await countAlerts(eventId)).toBe(0)
+  })
+
+  it('supports shared read acknowledgment and denies other households', async () => {
+    await oneOffTask()
+    await evaluateOverdueAlerts({ householdIds: [home.householdId] })
+    const list = await request(app).get('/api/alerts').set(as(tanakrit))
+    const alertId = list.body.alerts[0].id
+    const outsider = (await createHousehold(['Outsider'])).members[0]
+    expect((await request(app).get('/api/alerts').set(as(outsider))).body.alerts).toHaveLength(0)
+    expect((await request(app).get(`/api/alerts?householdId=${home.householdId}`)
+      .set(as(outsider))).status).toBe(403)
+    expect((await request(app).post(`/api/alerts/${alertId}/acknowledge`)
+      .set(as(outsider))).status).toBe(403)
+    const read = await request(app).post(`/api/alerts/${alertId}/acknowledge`).set(as(ryuu))
+    expect(read.status).toBe(200)
+    expect(read.body.alert.status).toBe('acknowledged')
+    const active = await request(app).get('/api/alerts?status=active').set(as(tanakrit))
+    expect(active.body.alerts).toHaveLength(0)
   })
 })
 
