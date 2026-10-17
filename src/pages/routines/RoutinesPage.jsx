@@ -34,7 +34,7 @@ const TYPE_COLORS = {
   vet_visit: 'blue',
   grooming: 'rose',
 }
-const ROUTINE_TYPES = [...CARE_TYPES.slice(0, 1), { value: 'water', label: 'Water' }, ...CARE_TYPES.slice(1)]
+const ROUTINE_TYPES = CARE_TYPES
 
 function emptyForm(petId = '') {
   return {

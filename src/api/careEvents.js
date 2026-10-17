@@ -1,8 +1,8 @@
 import { api } from './client.js'
 
-// Add Care Event types (the design has no "water")
 export const CARE_TYPES = [
   { value: 'feeding', label: 'Feeding' },
+  { value: 'water', label: 'Water' },
   { value: 'walk', label: 'Walk' },
   { value: 'medication', label: 'Medication' },
   { value: 'vet_visit', label: 'Vet visit' },
