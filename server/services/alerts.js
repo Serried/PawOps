@@ -1,4 +1,3 @@
-// Alerts (PBI-11): an overdue alert is stored once for every routine task that was missed.
 import { APP_TIMEZONE, OVERDUE_GRACE_MINUTES } from '../config.js'
 import { query } from '../db.js'
 import { forbidden } from '../lib/http-error.js'
@@ -14,9 +13,10 @@ export async function evaluateOverdueAlerts({ householdIds = null, db = { query 
             format('%s for %s was due at %s and has not been done yet',
                    e.title, p.name, to_char(e.scheduled_at AT TIME ZONE $3::text, 'HH24:MI'))
        FROM care_events e
-       JOIN care_routines r ON r.id = e.routine_id AND r.active
+       LEFT JOIN care_routines r ON r.id = e.routine_id
        JOIN pets p ON p.id = e.pet_id AND p.archived_at IS NULL
       WHERE e.status = 'upcoming'
+        AND (e.routine_id IS NULL OR r.active)
         AND e.scheduled_at + make_interval(mins => $1::int) < clock_timestamp()
         AND ($2::bigint[] IS NULL OR p.household_id = ANY($2::bigint[]))
      ON CONFLICT (care_event_id, type) DO NOTHING

@@ -131,13 +131,6 @@ export function AlertsPage() {
       )}
 
       <div className="alerts-toolbar">
-        <div>
-          <span className="alerts-toolbar-label">Alerts</span>
-          <p className="muted">
-            One alert is raised for each routine task that is still not done after its grace
-            period. It is resolved when someone completes the task.
-          </p>
-        </div>
         <div className="alerts-filters" aria-label="Filter alerts">
           {FILTERS.map(([value, label]) => (
             <button
@@ -246,7 +239,6 @@ export function AlertsPage() {
                         <Icon name="check" size={22} />
                       </span>
                       <strong>{filter === 'unread' ? 'You’re all caught up' : 'No alerts to show'}</strong>
-                      <p className="muted">When a routine task is missed, it will appear here.</p>
                     </td>
                   </tr>
                 )}
