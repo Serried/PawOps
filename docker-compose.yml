@@ -9,6 +9,9 @@ x-application: &application
     APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Bangkok}
     DUPLICATE_WINDOW_MINUTES: ${DUPLICATE_WINDOW_MINUTES:-30}
     OVERDUE_GRACE_MINUTES: ${OVERDUE_GRACE_MINUTES:-15}
+    RABBITMQ_URL: amqp://pawops:${RABBITMQ_PASSWORD:-pawops_rabbit_dev_password}@rabbitmq:5672
+    ALERT_RETRY_DELAY_MS: ${ALERT_RETRY_DELAY_MS:-60000}
+    ALERT_MAX_ATTEMPTS: ${ALERT_MAX_ATTEMPTS:-5}
 
 services:
   db:
@@ -35,6 +38,21 @@ services:
       db:
         condition: service_healthy
 
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: pawops
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pawops_rabbit_dev_password}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   app:
     <<: *application
     restart: unless-stopped
@@ -59,13 +77,15 @@ services:
   alert-worker:
     <<: *application
     restart: unless-stopped
-    command: ["node", "server/jobs/alert-tick.js", "--loop"]
+    command: ["node", "server/jobs/alert-worker.js"]
     environment:
       <<: *application-environment
       WORKER_HEARTBEAT_FILE: /tmp/pawops-alert-heartbeat
     depends_on:
       migrate:
         condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/pawops-alert-heartbeat','utf8'))<180000?0:1)}catch{process.exit(1)}"]
       interval: 30s
@@ -73,7 +93,27 @@ services:
       retries: 3
       start_period: 15s
 
+  alert-scheduler:
+    <<: *application
+    restart: unless-stopped
+    command: ["node", "server/jobs/alert-scheduler.js", "--loop"]
+    environment:
+      <<: *application-environment
+      SCHEDULER_HEARTBEAT_FILE: /tmp/pawops-alert-scheduler-heartbeat
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/pawops-alert-scheduler-heartbeat','utf8'))<180000?0:1)}catch{process.exit(1)}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
 volumes:
   postgres_data:
+  rabbitmq_data:
   uploads:
 

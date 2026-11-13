@@ -11,12 +11,12 @@ Copy-Item .env.example .env
 docker compose up --build -d --wait
 ```
 
-Open `http://localhost:8080`. Compose starts PostgreSQL, runs migrations, serves
-the built frontend/API and starts the independent alert worker. `docker compose ps -a`
-shows app/DB/worker health; the migration service should exit with code 0.
-`docker compose logs app alert-worker migrate` shows application and startup logs.
+Open `http://localhost:8080`. Compose starts PostgreSQL and RabbitMQ, runs migrations,
+serves the built frontend/API, and starts independent alert scheduler/worker processes.
+`docker compose ps -a` shows all service health; the migration service should exit with code 0.
+`docker compose logs app alert-scheduler alert-worker migrate` shows application and job logs.
 
-Data is kept in `postgres_data` and `uploads` named volumes. `docker compose down`
+Data is kept in `postgres_data`, `rabbitmq_data`, and `uploads` named volumes. `docker compose down`
 stops the stack without deleting them; `docker compose up -d --wait` starts it again.
 `docker compose down --volumes` deletes the database and uploaded photos; use it
 only for disposable data. Change `WEB_PORT`/`POSTGRES_PORT` in `.env` if needed.
@@ -75,7 +75,17 @@ The repository includes a declarative, CI-only `Jenkinsfile` for a Windows Jenki
 
 Because the current Jenkins controller is not directly reachable from GitHub, a thin GitHub Actions bridge triggers the parameterized `pawops-ci` job and waits for its real result. Jenkins remains the CI engine; GitHub only exposes the required `Jenkins CI` check for pull-request gating. The configuration is defined in [Jenkinsfile](Jenkinsfile) and [.github/workflows/jenkins-ci.yml](.github/workflows/jenkins-ci.yml).
 
-Image publishing and deployment are intentionally deferred to PBI-17.
+After every blocking verification stage succeeds, Jenkins deploys an isolated Compose staging
+stack and verifies both `GET /api/health` and the built frontend. Declarative stage ordering means
+deployment is not executed when lint, tests, application build, or Docker build fails.
+
+## Project evidence
+
+- [PBI-01..20 traceability matrix](docs/traceability.md)
+- [Reproducible demo runbook](docs/demo-runbook.md)
+- [Cross-review and Definition of Done checklist](docs/review-checklist.md)
+- [Latest local verification report](docs/verification-report.md)
+- `npm run test:ci` runs the complete PostgreSQL-backed automated suite.
 
 ## Frontend notes
 
