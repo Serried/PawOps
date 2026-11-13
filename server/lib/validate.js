@@ -1,4 +1,5 @@
 import { badRequest } from './http-error.js'
+import { parseIsoTimestamp } from './timestamp.js'
 
 export class Validator {
   constructor(body) {
@@ -91,11 +92,11 @@ export class Validator {
       return this
     }
     const raw = this.body[field]
-    const date = typeof raw === 'string' ? new Date(raw) : null
-    if (!date || Number.isNaN(date.getTime())) {
+    const date = parseIsoTimestamp(raw)
+    if (!date) {
       this.fail(field, 'must be an ISO date-time')
     } else {
-      this.values[as] = date.toISOString()
+      this.values[as] = date
     }
     return this
   }

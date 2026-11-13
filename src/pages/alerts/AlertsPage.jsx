@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { acknowledgeAlert, listAlerts } from '../../api/alerts.js'
+import { useEffect, useState } from 'react'
+import { acknowledgeAlert, getAlertsPage } from '../../api/alerts.js'
 import { careTypeLabel, completeCareEvent } from '../../api/careEvents.js'
 import { apiError } from '../../api/client.js'
 import { Icon } from '../../components/Icon.jsx'
@@ -33,12 +33,13 @@ function alertIconTone(type) {
 
 export function AlertsPage() {
   const { household } = useSession()
+  const [filter, setFilter] = useState('all')
+  const [offset, setOffset] = useState(0)
   const alerts = useApi(
-    () => listAlerts({ householdId: household.id, status: 'all' }),
-    `alerts:${household.id}`,
+    () => getAlertsPage({ householdId: household.id, status: filter === 'unread' ? 'active' : filter, limit: 50, offset }),
+    `alerts:${household.id}:${filter}:${offset}`,
   )
   const { run, dialog } = useDuplicateGuard()
-  const [filter, setFilter] = useState('all')
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
   const [now, setNow] = useState(() => Date.now())
@@ -52,18 +53,9 @@ export function AlertsPage() {
     return () => clearInterval(timer)
   }, [reload])
 
-  const rows = useMemo(() => alerts.data ?? [], [alerts.data])
-  const unreadCount = rows.filter((alert) => alert.status === 'active').length
-  const visible = useMemo(
-    () =>
-      rows.filter(
-        (alert) =>
-          filter === 'all' ||
-          (filter === 'unread' && alert.status === 'active') ||
-          (filter === 'resolved' && alert.status === 'resolved'),
-      ),
-    [rows, filter],
-  )
+  const visible = alerts.data?.alerts ?? []
+  const unreadCount = alerts.data?.unreadCount ?? 0
+  const pagination = alerts.data?.pagination
 
   function refresh() {
     setNow(Date.now())
@@ -90,7 +82,7 @@ export function AlertsPage() {
       await run((override) => completeCareEvent(alert.careEvent.id, { override }), () => reload())
     } catch (err) {
       setError(err.message)
-      if (err.code === 'ALREADY_DONE') reload()
+      if (['ALREADY_DONE', 'CARE_EVENT_CHANGED'].includes(err.code)) reload()
     } finally {
       setBusyId(null)
     }
@@ -138,7 +130,7 @@ export function AlertsPage() {
               key={value}
               className={filter === value ? 'is-active' : ''}
               aria-pressed={filter === value}
-              onClick={() => setFilter(value)}
+              onClick={() => { setFilter(value); setOffset(0) }}
             >
               {label}
               {value === 'unread' ? ` ${unreadCount}` : ''}
@@ -246,6 +238,15 @@ export function AlertsPage() {
             </table>
           </div>
         </div>
+      )}
+      {pagination && (
+        <nav className="alerts-header-actions" aria-label="Alert pages">
+          <button type="button" className="btn btn--outline btn--small"
+            disabled={offset === 0 || alerts.refreshing} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous</button>
+          <span>{pagination.total === 0 ? '0 alerts' : `${offset + 1}–${offset + visible.length} of ${pagination.total}`}</span>
+          <button type="button" className="btn btn--outline btn--small"
+            disabled={!pagination.hasMore || alerts.refreshing} onClick={() => setOffset(offset + 50)}>Next</button>
+        </nav>
       )}
       {dialog}
     </section>

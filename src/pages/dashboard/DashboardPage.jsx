@@ -85,6 +85,7 @@ export function DashboardPage() {
       })
     } catch (error) {
       setActionError(error.message)
+      if (['ALREADY_DONE', 'CARE_EVENT_CHANGED'].includes(error.code)) dashboard.reload()
     } finally {
       setBusyId(null)
     }

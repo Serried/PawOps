@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import { Avatar, Feedback } from './ui.jsx'
+import { useSession } from './context/session.js'
 
 export default function HouseholdMembers({ household }) {
+  const { reloadMembers } = useSession()
   const [members, setMembers] = useState([])
   const [email, setEmail] = useState('')
   const [invite, setInvite] = useState(null)
@@ -24,6 +26,7 @@ export default function HouseholdMembers({ household }) {
     try {
       const data = await api(`households/${household.id}/members`, { email })
       setMembers((current) => [...current, data.member]); setEmail(''); setNotice('Member added to the household.')
+      reloadMembers()
     } catch (err) { setError(err.message) }
     finally { setBusy(false) }
   }

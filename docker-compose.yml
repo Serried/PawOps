@@ -1,3 +1,15 @@
+x-application: &application
+  build: .
+  environment: &application-environment
+    PGHOST: db
+    PGPORT: 5432
+    PGDATABASE: ${POSTGRES_DB:-pawops}
+    PGUSER: ${POSTGRES_USER:-pawops}
+    PGPASSWORD: ${POSTGRES_PASSWORD:-pawops_dev_password}
+    APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Bangkok}
+    DUPLICATE_WINDOW_MINUTES: ${DUPLICATE_WINDOW_MINUTES:-30}
+    OVERDUE_GRACE_MINUTES: ${OVERDUE_GRACE_MINUTES:-15}
+
 services:
   db:
     image: postgres:17-alpine
@@ -7,7 +19,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-pawops}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pawops_dev_password}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,6 +28,52 @@ services:
       timeout: 5s
       retries: 10
 
+  migrate:
+    <<: *application
+    command: ["node", "server/migrate.js"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *application
+    restart: unless-stopped
+    environment:
+      <<: *application-environment
+      # Local HTTP only; set true when serving through an HTTPS reverse proxy.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:3001"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  alert-worker:
+    <<: *application
+    restart: unless-stopped
+    command: ["node", "server/jobs/alert-tick.js", "--loop"]
+    environment:
+      <<: *application-environment
+      WORKER_HEARTBEAT_FILE: /tmp/pawops-alert-heartbeat
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/pawops-alert-heartbeat','utf8'))<180000?0:1)}catch{process.exit(1)}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
 volumes:
   postgres_data:
+  uploads:
 

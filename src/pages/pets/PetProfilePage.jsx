@@ -58,6 +58,7 @@ export function PetProfilePage() {
       })
     } catch (error) {
       setActionError(error.message)
+      if (['ALREADY_DONE', 'CARE_EVENT_CHANGED'].includes(error.code)) events.reload()
     } finally {
       setBusyId(null)
     }

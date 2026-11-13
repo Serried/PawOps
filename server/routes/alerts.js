@@ -2,9 +2,9 @@ import { Router } from 'express'
 import { badRequest } from '../lib/http-error.js'
 import { paramId, toId } from '../lib/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { acknowledgeAlert, listAlerts } from '../services/alerts.js'
+import { acknowledgeAlert, listAlertsPage } from '../services/alerts.js'
 
-const STATUS_FILTERS = ['active', 'all']
+const STATUS_FILTERS = ['active', 'all', 'resolved']
 
 export const alertsRouter = Router()
 alertsRouter.use(requireAuth)
@@ -22,7 +22,19 @@ alertsRouter.get('/', async (request, response) => {
     if (householdId === null) throw badRequest('householdId must be a positive integer id')
     filters.householdId = householdId
   }
-  response.json({ alerts: await listAlerts(request.user, filters) })
+  if (request.query.limit !== undefined) {
+    const limit = toId(request.query.limit)
+    if (limit === null || limit > 200) throw badRequest('limit must be between 1 and 200')
+    filters.limit = limit
+  }
+  if (request.query.offset !== undefined) {
+    const value = request.query.offset
+    if (typeof value !== 'string' || !/^(0|[1-9]\d*)$/.test(value) || !Number.isSafeInteger(Number(value))) {
+      throw badRequest('offset must be a non-negative integer')
+    }
+    filters.offset = Number(value)
+  }
+  response.json(await listAlertsPage(request.user, filters))
 })
 
 alertsRouter.post('/:alertId/acknowledge', async (request, response) => {

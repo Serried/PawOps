@@ -1,8 +1,12 @@
 import { api } from './client.js'
 
-export async function listAlerts({ householdId, status = 'all' } = {}) {
-  const { data } = await api.get('/alerts', { params: { householdId, status } })
-  return data.alerts
+export async function getAlertsPage({ householdId, status = 'all', limit = 100, offset = 0 } = {}) {
+  const { data } = await api.get('/alerts', { params: { householdId, status, limit, offset } })
+  return data
+}
+
+export async function listAlerts(filters = {}) {
+  return (await getAlertsPage(filters)).alerts
 }
 
 export async function acknowledgeAlert(alertId) {

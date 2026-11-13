@@ -19,9 +19,9 @@ export function ActiveAlerts({ alerts }) {
             <li key={alert.id} className="flex items-start gap-[11px] border-t border-[#f2d2a9] pt-3">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--warning-soft)] text-[var(--warning-ink)]"><Icon name="alert" size={20} /></span>
               <div>
-                <strong>{alert.title} overdue</strong>
-                <p className="my-[3px] mb-[7px] text-sm text-[var(--muted)]">{alert.petName}&apos;s {alert.title.toLowerCase()} was due at {formatTime(alert.scheduledAt)}.</p>
-                <Link className="text-sm font-bold" to={`/pets/${alert.petId}`}>View details</Link>
+                <strong>{alert.careEvent.title} overdue</strong>
+                <p className="my-[3px] mb-[7px] text-sm text-[var(--muted)]">{alert.petName}&apos;s {alert.careEvent.title.toLowerCase()} was due at {formatTime(alert.careEvent.scheduledAt)}.</p>
+                <Link className="text-sm font-bold" to="/alerts">View details</Link>
               </div>
             </li>
           ))}
