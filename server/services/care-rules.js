@@ -10,7 +10,7 @@ export function needsDuplicateCheck(type) {
   return DUPLICATE_CHECK_TYPES.includes(type)
 }
 
-// TODO(Member 3): use the routine's duplicate_window_minutes
+// MVP policy: one configurable household-wide safety window for guarded care types.
 export function duplicateWindowMinutes() {
   return DUPLICATE_WINDOW_MINUTES
 }

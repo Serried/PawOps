@@ -12,6 +12,7 @@ import { Icon } from '../../components/Icon.jsx'
 import { RequestError, StatusNotice } from '../../components/AsyncState.jsx'
 import { useSession } from '../../context/session.js'
 import { useApi } from '../../hooks/useApi.js'
+import { useAutoRefresh } from '../../hooks/useAutoRefresh.js'
 import { useDuplicateGuard } from '../../hooks/useDuplicateGuard.jsx'
 
 export function DashboardView({ data, user, household, busyId = null, onComplete = () => {} }) {
@@ -74,6 +75,10 @@ export function DashboardPage() {
   const [actionError, setActionError] = useState(null)
   const [actionNotice, setActionNotice] = useState(null)
 
+  useAutoRefresh(() => {
+    if (!dashboard.refreshing && busyId === null) dashboard.reload()
+  })
+
   const markDone = async (event) => {
     setBusyId(event.id)
     setActionError(null)
@@ -85,6 +90,7 @@ export function DashboardPage() {
       })
     } catch (error) {
       setActionError(error.message)
+      if (['ALREADY_DONE', 'CARE_EVENT_CHANGED'].includes(error.code)) dashboard.reload()
     } finally {
       setBusyId(null)
     }

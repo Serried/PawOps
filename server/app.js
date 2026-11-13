@@ -2,7 +2,6 @@ import express from 'express'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAuthRouter } from './auth.js'
-import { UPLOAD_DIR } from './config.js'
 import { query } from './db.js'
 import { createHouseholdRouter } from './households.js'
 import { createInviteRouter } from './invites.js'
@@ -10,6 +9,7 @@ import { apiNotFound, errorHandler, memberOneErrorHandler } from './middleware/e
 import { alertsRouter } from './routes/alerts.js'
 import { careEventsRouter } from './routes/care-events.js'
 import { petsRouter } from './routes/pets.js'
+import { photosRouter } from './routes/photos.js'
 import { routinesRouter } from './routes/routines.js'
 
 export function createApp() {
@@ -31,7 +31,7 @@ export function createApp() {
     }
   })
 
-  app.use('/api/uploads', express.static(UPLOAD_DIR, { fallthrough: false, index: false }))
+  app.use('/api/uploads', photosRouter)
 
   const memberOneRoutes = ['/api/auth', '/api/households', '/api/invites']
   app.use('/api/auth', createAuthRouter(query))

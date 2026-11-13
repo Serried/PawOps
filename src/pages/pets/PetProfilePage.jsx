@@ -7,6 +7,7 @@ import { EmptyState, PageLoading, RequestError, StatusNotice } from '../../compo
 import { PetAvatar } from '../../components/PetAvatar.jsx'
 import { StatusBadge } from '../../components/StatusBadge.jsx'
 import { useApi } from '../../hooks/useApi.js'
+import { useAutoRefresh } from '../../hooks/useAutoRefresh.js'
 import { useDuplicateGuard } from '../../hooks/useDuplicateGuard.jsx'
 import {
   formatAge,
@@ -47,6 +48,12 @@ export function PetProfilePage() {
   const [actionError, setActionError] = useState(null)
   const [actionNotice, setActionNotice] = useState(location.state?.notice ?? null)
 
+  useAutoRefresh(() => {
+    if (busyId !== null) return
+    if (!pet.refreshing) pet.reload()
+    if (!events.refreshing) events.reload()
+  })
+
   const markDone = async (event) => {
     setBusyId(event.id)
     setActionError(null)
@@ -58,6 +65,7 @@ export function PetProfilePage() {
       })
     } catch (error) {
       setActionError(error.message)
+      if (['ALREADY_DONE', 'CARE_EVENT_CHANGED'].includes(error.code)) events.reload()
     } finally {
       setBusyId(null)
     }

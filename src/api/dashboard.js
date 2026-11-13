@@ -1,5 +1,6 @@
 import { listCareEvents } from './careEvents.js'
 import { listPets } from './pets.js'
+import { listAlerts } from './alerts.js'
 
 export function localDayBounds(now = new Date()) {
   const start = new Date(now)
@@ -13,9 +14,9 @@ export async function getDashboard(householdId, now = new Date()) {
   const bounds = localDayBounds(now)
   const [pets, today, recentActivity, activeAlerts] = await Promise.all([
     listPets(householdId),
-    listCareEvents({ householdId, ...bounds, limit: 200 }),
+    listCareEvents({ householdId, ...bounds, dateField: 'scheduled', limit: 200 }),
     listCareEvents({ householdId, status: 'done', limit: 8 }),
-    listCareEvents({ householdId, status: 'overdue', limit: 50 }),
+    listAlerts({ householdId, status: 'active' }),
   ])
 
   return {

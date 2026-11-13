@@ -1,7 +1,11 @@
 import request from 'supertest'
+import sharp from 'sharp'
+import { readdir } from 'node:fs/promises'
+import path from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../../server/app.js'
 import { query } from '../../server/db.js'
+import { UPLOAD_DIR } from '../../server/config.js'
 import { as, createHousehold, createPet, insertDoneEvent } from '../helpers/fixtures.js'
 
 const app = createApp()
@@ -139,9 +143,31 @@ describe('PBI-05 pet profiles', () => {
       .attach('photo', PNG, { filename: 'mochi.png', contentType: 'image/png' })
 
     expect(response.status).toBe(200)
-    expect(response.body.pet.photoUrl).toMatch(/^\/api\/uploads\/pets\/pet-\d+-\d+\.png$/)
-    const image = await request(app).get(response.body.pet.photoUrl)
+    expect(response.body.pet.photoUrl).toMatch(/^\/api\/uploads\/pets\/pet-\d+-[a-f0-9-]{36}\.png$/)
+    const image = await request(app).get(response.body.pet.photoUrl).set(as(member))
     expect(image.status).toBe(200)
+    expect(image.headers['cache-control']).toBe('private, no-store')
+    expect(await sharp(image.body).metadata()).toMatchObject({ format: 'png', width: 1, height: 1 })
+    expect(await sharp(image.body).ensureAlpha().raw().toBuffer()).toEqual(await sharp(PNG).ensureAlpha().raw().toBuffer())
+  })
+
+  it('protects photos from anonymous users, other households, former members and archived pets', async () => {
+    const pet = await createPet(home.householdId, 'Mochi')
+    const uploaded = await request(app).post(`/api/pets/${pet.id}/photo`).set(as(owner))
+      .attach('photo', PNG, { filename: 'mochi.png', contentType: 'image/png' })
+    expect(uploaded.status).toBe(200)
+    const url = uploaded.body.pet.photoUrl
+    const outsider = (await createHousehold(['Outsider'])).members[0]
+    expect((await request(app).get(url)).status).toBe(401)
+    expect((await request(app).get(url).set(as(outsider))).status).toBe(403)
+    expect((await request(app).get(url).set(as(member))).status).toBe(200)
+    const leave = await request(app).post(`/api/households/${home.householdId}/leave`)
+      .set(as(member)).send({})
+    expect(leave.status).toBe(200)
+    expect((await request(app).get(url).set(as(member))).status).toBe(403)
+    await request(app).delete(`/api/pets/${pet.id}`).set(as(owner))
+    expect((await request(app).get(url).set(as(owner))).status).toBe(403)
+    expect((await request(app).get('/api/uploads/pets/missing.png').set(as(owner))).status).toBe(403)
   })
 
   it('rejects files that are not JPG or PNG', async () => {
@@ -156,6 +182,35 @@ describe('PBI-05 pet profiles', () => {
       .set(as(owner))
       .attach('photo', PNG, { filename: 'mochi.webp', contentType: 'image/webp' })
     expect(webp.status).toBe(400)
+  })
+
+  it('rejects fake and truncated images without replacing the current photo or leaving files', async () => {
+    const pet = await createPet(home.householdId, 'Mochi')
+    const uploaded = await request(app).post(`/api/pets/${pet.id}/photo`).set(as(owner))
+      .attach('photo', PNG, { filename: 'real.png', contentType: 'image/png' })
+    expect(uploaded.status).toBe(200)
+    const directory = path.join(UPLOAD_DIR, 'pets')
+    const existing = (await readdir(directory)).filter(name => name.startsWith(`pet-${pet.id}-`)).sort()
+    for (const bytes of [Buffer.from('not an image'), PNG.subarray(0, 40)]) {
+      const response = await request(app).post(`/api/pets/${pet.id}/photo`).set(as(owner))
+        .attach('photo', bytes, { filename: 'fake.png', contentType: 'image/png' })
+      expect(response.status).toBe(400)
+    }
+    expect((await request(app).get(`/api/pets/${pet.id}`).set(as(owner))).body.pet.photoUrl).toBe(uploaded.body.pet.photoUrl)
+    expect((await readdir(directory)).filter(name => name.startsWith(`pet-${pet.id}-`)).sort()).toEqual(existing)
+  })
+
+  it('decodes JPEG images and rejects an image whose declared MIME does not match its format', async () => {
+    const pet = await createPet(home.householdId)
+    const jpeg = await sharp(PNG).jpeg().toBuffer()
+    const mismatch = await request(app).post(`/api/pets/${pet.id}/photo`).set(as(owner))
+      .attach('photo', jpeg, { filename: 'wrong.png', contentType: 'image/png' })
+    expect(mismatch.status).toBe(400)
+    const uploaded = await request(app).post(`/api/pets/${pet.id}/photo`).set(as(owner))
+      .attach('photo', jpeg, { filename: 'real.jpg', contentType: 'image/jpeg' })
+    expect(uploaded.status).toBe(200)
+    const image = await request(app).get(uploaded.body.pet.photoUrl).set(as(owner))
+    expect(await sharp(image.body).metadata()).toMatchObject({ format: 'jpeg', width: 1, height: 1 })
   })
 })
 

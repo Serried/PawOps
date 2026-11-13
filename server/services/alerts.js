@@ -64,20 +64,40 @@ function serializeAlert(row) {
   }
 }
 
-export async function listAlerts(user, { householdId, status = 'all', limit = 100 } = {}) {
+export async function listAlertsPage(user, { householdId, status = 'all', limit = 100, offset = 0 } = {}) {
   if (householdId) await assertHouseholdMember(user.id, householdId)
   const householdIds = householdId ? [householdId] : await listUserHouseholdIds(user.id)
 
-  const where = ['al.household_id = ANY($1::bigint[])', 'p.archived_at IS NULL']
-  if (status === 'active') where.push(`e.status = 'upcoming' AND al.acknowledged_at IS NULL`)
+  const statusFilter = {
+    all: 'TRUE',
+    active: "event_status = 'upcoming' AND acknowledged_at IS NULL",
+    resolved: "event_status = 'done'",
+  }[status]
   const result = await query(
-    `${ALERT_SELECT}
-      WHERE ${where.join(' AND ')}
-      ORDER BY al.created_at DESC, al.id DESC
-      LIMIT $2`,
-    [householdIds, limit],
+    `WITH visible AS MATERIALIZED (
+       ${ALERT_SELECT}
+       WHERE al.household_id = ANY($1::bigint[]) AND p.archived_at IS NULL
+     ), filtered AS (
+       SELECT * FROM visible WHERE ${statusFilter}
+     ), paged AS (
+       SELECT * FROM filtered ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3
+     )
+     SELECT COALESCE((SELECT json_agg(paged ORDER BY created_at DESC, id DESC) FROM paged), '[]') AS items,
+            (SELECT COUNT(*)::int FROM filtered) AS total,
+            (SELECT COUNT(*)::int FROM visible
+              WHERE event_status = 'upcoming' AND acknowledged_at IS NULL) AS unread_count`,
+    [householdIds, limit, offset],
   )
-  return result.rows.map(serializeAlert)
+  const row = result.rows[0]
+  return {
+    alerts: row.items.map(serializeAlert),
+    unreadCount: row.unread_count,
+    pagination: { limit, offset, total: row.total, hasMore: offset + limit < row.total },
+  }
+}
+
+export async function listAlerts(user, filters = {}) {
+  return (await listAlertsPage(user, filters)).alerts
 }
 
 export async function acknowledgeAlert(user, alertId) {

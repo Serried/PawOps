@@ -31,6 +31,13 @@ export const OVERDUE_GRACE_MINUTES = positiveInt(
 
 export const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Bangkok'
 
+export const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672'
+export const ALERT_QUEUE = process.env.ALERT_QUEUE || 'pawops.alert.evaluate'
+export const ALERT_RETRY_QUEUE = process.env.ALERT_RETRY_QUEUE || `${ALERT_QUEUE}.retry`
+export const ALERT_FAILED_QUEUE = process.env.ALERT_FAILED_QUEUE || `${ALERT_QUEUE}.failed`
+export const ALERT_RETRY_DELAY_MS = positiveInt(process.env.ALERT_RETRY_DELAY_MS, 60_000)
+export const ALERT_MAX_ATTEMPTS = positiveInt(process.env.ALERT_MAX_ATTEMPTS, 5)
+
 export const PET_SEXES = ['male', 'female', 'unknown']
 
 export const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || 'uploads')

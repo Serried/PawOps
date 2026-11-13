@@ -2,12 +2,16 @@ import { pool } from '../db.js'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
+import { writeFile } from 'node:fs/promises'
 import { evaluateOverdueAlerts } from '../services/alerts.js'
 
 const LOOP_INTERVAL_MS = 60_000
 
 export async function runAlertTick() {
   const created = await evaluateOverdueAlerts()
+  if (process.env.WORKER_HEARTBEAT_FILE) {
+    await writeFile(process.env.WORKER_HEARTBEAT_FILE, String(Date.now()))
+  }
   console.log(`[alerts] tick: ${created} new overdue alert(s)`)
   return created
 }

@@ -14,7 +14,11 @@ export async function sessionUser(query, req) {
   return result.rows[0] || null
 }
 
-export function createAuthRouter(query, { secure = process.env.NODE_ENV === 'production' } = {}) {
+export function createAuthRouter(query, {
+  secure = process.env.SESSION_COOKIE_SECURE === undefined
+    ? process.env.NODE_ENV === 'production'
+    : process.env.SESSION_COOKIE_SECURE !== 'false',
+} = {}) {
   const router = Router()
   const cookieOptions = { httpOnly: true, secure, sameSite: 'strict', path: '/' }
   const dummyHash = hashPassword(randomBytes(32).toString('hex'))

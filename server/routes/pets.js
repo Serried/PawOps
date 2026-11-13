@@ -1,8 +1,10 @@
 import { mkdirSync } from 'node:fs'
-import { unlink } from 'node:fs/promises'
+import { readFile, unlink, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { Router } from 'express'
 import multer from 'multer'
+import sharp from 'sharp'
 import {
   PET_PHOTO_MAX_BYTES,
   PET_PHOTO_MIME_TYPES,
@@ -34,7 +36,7 @@ const upload = multer({
     },
     filename: (request, file, callback) => {
       const extension = PET_PHOTO_MIME_TYPES[file.mimetype]
-      callback(null, `pet-${request.params.petId}-${Date.now()}${extension}`)
+      callback(null, `pet-${request.params.petId}-${randomUUID()}${extension}`)
     },
   }),
   limits: { fileSize: PET_PHOTO_MAX_BYTES, files: 1 },
@@ -105,6 +107,18 @@ petsRouter.post(
     if (!request.file) throw badRequest('Choose a photo to upload')
     const storedPath = `pets/${request.file.filename}`
     try {
+      // Decode all pixels before accepting the file, then store only an encoded image.
+      let encoded
+      try {
+        const image = sharp(await readFile(request.file.path), { limitInputPixels: 25_000_000, failOn: 'warning' })
+        const metadata = await image.metadata()
+        const expected = request.file.mimetype === 'image/png' ? 'png' : 'jpeg'
+        if (metadata.format !== expected) throw new Error('Image format mismatch')
+        encoded = await image.rotate().toFormat(expected).toBuffer()
+      } catch {
+        throw badRequest('Photo must be a valid JPG or PNG image, at most 25 megapixels')
+      }
+      await writeFile(request.file.path, encoded)
       const pet = await setPhoto(Number(request.params.petId), request.user.id, storedPath)
       response.json({ pet })
     } catch (error) {

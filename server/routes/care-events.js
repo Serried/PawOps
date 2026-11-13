@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { CARE_EVENT_TYPES } from '../config.js'
 import { badRequest } from '../lib/http-error.js'
 import { paramId, toId, Validator } from '../lib/validate.js'
+import { parseIsoTimestamp } from '../lib/timestamp.js'
 import { requireAuth } from '../middleware/auth.js'
 import {
   completeCareEvent,
@@ -40,9 +41,13 @@ export function listQuery(query) {
   }
   for (const key of ['from', 'to']) {
     if (query[key] === undefined) continue
-    const date = new Date(query[key])
-    if (Number.isNaN(date.getTime())) throw badRequest(`${key} must be an ISO date-time`)
-    filters[key] = date.toISOString()
+    const date = parseIsoTimestamp(query[key])
+    if (!date) throw badRequest(`${key} must be a valid ISO date-time with a timezone`)
+    filters[key] = date
+  }
+  if (query.dateField !== undefined) {
+    if (!['activity', 'scheduled'].includes(query.dateField)) throw badRequest('dateField must be activity or scheduled')
+    filters.dateField = query.dateField
   }
   if (query.limit !== undefined) {
     const limit = toId(query.limit)

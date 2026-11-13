@@ -277,6 +277,55 @@ pipeline {
         '''
       }
     }
+
+
+    stage('Deploy Staging & Smoke Test') {
+      steps {
+        powershell '''
+          $ErrorActionPreference = "Stop"
+
+          # This isolated Compose project is the CI staging deployment. Declarative
+          # stage ordering guarantees it is never reached after a failed test/build.
+          $env:POSTGRES_PASSWORD = [guid]::NewGuid().ToString("N")
+          $env:RABBITMQ_PASSWORD = [guid]::NewGuid().ToString("N")
+          $env:POSTGRES_PORT = "0"
+          $env:WEB_PORT = "0"
+
+          docker compose up --build --detach --wait
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Staging deployment failed to become healthy."
+          }
+
+          $portLine = docker compose port app 3001
+          $appPort = ($portLine -split ':')[-1].Trim()
+          if (!($appPort -match '^\d+$')) {
+            throw "Compose did not return a valid application port: $portLine"
+          }
+
+          $health = Invoke-RestMethod `
+            -Uri "http://127.0.0.1:$appPort/api/health" `
+            -Method Get `
+            -TimeoutSec 15
+
+          if ($health.status -ne "ok" -or $health.database -ne "connected") {
+            throw "Health smoke test returned an unhealthy response."
+          }
+
+          $home = Invoke-WebRequest `
+            -Uri "http://127.0.0.1:$appPort/" `
+            -Method Get `
+            -TimeoutSec 15 `
+            -UseBasicParsing
+
+          if ($home.StatusCode -ne 200 -or $home.Content -notmatch '<div id="root">') {
+            throw "Frontend smoke test failed."
+          }
+
+          Write-Host "Staging deploy and smoke tests passed on port $appPort."
+        '''
+      }
+    }
   }
 
 
@@ -296,6 +345,8 @@ This revision completed:
 - automated tests
 - application build
 - Docker image build
+- isolated staging deployment
+- API health and frontend smoke tests
 
 GitHub Actions may treat this Jenkins build as successful.
 """

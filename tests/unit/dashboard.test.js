@@ -46,7 +46,7 @@ describe('PBI-13 dashboard', () => {
       pets: [{ id: 1, name: 'Mochi', species: 'Cat', photoUrl: null }],
       today: [completed, overdue],
       recentActivity: [completed],
-      activeAlerts: [overdue],
+      activeAlerts: [{ id: 30, petId: 1, petName: 'Mochi', status: 'active', careEvent: overdue }],
     })
 
     expect(html).toContain('Serried Household')

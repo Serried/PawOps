@@ -154,6 +154,9 @@ export async function completeCareEvent(user, eventId, { override }) {
       [eventId],
     )
     const event = current.rows[0]
+    if (!event) {
+      throw conflict('CARE_EVENT_CHANGED', 'This task was removed or changed. Please refresh your care list.')
+    }
     if (event.status === 'done') {
       throw conflict('ALREADY_DONE', `This task was already completed by ${event.completed_by_name}`, {
         completedAt: event.completed_at,
@@ -187,7 +190,7 @@ const STATUS_FILTERS = {
 
 export const EVENT_STATUS_FILTERS = Object.keys(STATUS_FILTERS)
 
-export async function listCareEvents(user, { householdId, petId, status, from, to, limit }) {
+export async function listCareEvents(user, { householdId, petId, status, from, to, limit, dateField = 'activity' }) {
   if (petId) {
     await loadAccessiblePet(petId, user.id)
   } else if (householdId) {
@@ -219,13 +222,14 @@ export async function listCareEvents(user, { householdId, petId, status, from, t
     }
     where.push(filter)
   }
+  const dateColumn = dateField === 'scheduled' ? 'e.scheduled_at' : 'COALESCE(e.completed_at, e.scheduled_at)'
   if (from) {
     params.push(from)
-    where.push(`COALESCE(e.completed_at, e.scheduled_at) >= $${params.length}`)
+    where.push(`${dateColumn} >= $${params.length}`)
   }
   if (to) {
     params.push(to)
-    where.push(`COALESCE(e.completed_at, e.scheduled_at) < $${params.length}`)
+    where.push(`${dateColumn} < $${params.length}`)
   }
   params.push(limit)
 
